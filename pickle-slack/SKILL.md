@@ -629,25 +629,17 @@ Plus `slack_reminder_add` for the due date (same pattern as Mode A).
 
 ---
 
-### Step 8.5 — Send completion DM to self
+### Step 8.5 — Fire completion notification via Slack Reminder
 
-After ALL items and reminders are created, post a self-DM via `slack_post_self_dm` as a notification ping:
+After ALL items are created, set **one immediate Slack reminder** via `slack_reminder_add`. Reminders fire as real Slack push notifications (appear in Slackbot) — no DM needed.
 
 ```
-🥒 Pickle done — [N] items added to your Slack List
-
-🔴 Urgent ([N])  🟠 High ([N])  🟡 Normal ([N])  ⚪ Low ([N])
-
-[For each HIGH+ item:]
-• [title] → [PERMALINK]
-
-🔗 Full list: slack://app.slack.com/lists/[LIST_ID]
-⏰ Reminders set for each item — check Slackbot at the due time.
-
-Mark items Done when handled. Done items auto-clean after 24h (/pickle-slack cleanup).
+text:    "🥒 Pickle Inbox — Made from Pickle is Ready!\n[N] items added · Open: https://app.slack.com/lists/[WORKSPACE_ID]/[LIST_ID]"
+time:    NOW_UNIX + 30   (current Unix timestamp + 30 seconds — fires almost instantly)
+user_id: MY_USER_ID
 ```
 
-This is a **notification only** — the Slack List is the primary record. If List creation failed entirely, do NOT fall back to DM-as-inbox. Report the error instead.
+**Do NOT send a self-DM.** The reminder IS the notification. Slackbot will ping the user when it fires.
 
 ### Archive / Done cleanup rule
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @pickle/slack-mcp  v1.5.0
+ * @pickle/slack-mcp  v1.6.0
  *
  * Free, open-source Slack MCP server — part of the Pickle project.
  * Pure Node.js ESM · no build step · no TypeScript compilation.
@@ -158,7 +158,7 @@ const TOOLS = [
   },
   {
     name: "slack_post_self_dm",
-    description: "Post a formatted message to the authenticated user's own DM channel (self-DM). Use as a COMPLETION NOTIFICATION after all Pickle Inbox items have been pushed — send a summary DM so the user gets notified without having to open the List. NOT a fallback for List creation.",
+    description: "Post a formatted message to the authenticated user's own DM channel (self-DM). LAST RESORT ONLY — prefer slack_reminder_add for completion notifications (reminders fire as real push notifications; self-DMs may not trigger a badge). Use this only if reminder API fails.",
     inputSchema: {
       type: "object",
       properties: {
@@ -273,25 +273,57 @@ async function handleTool(name, args) {
     }
 
     case "slack_list_find_or_create": {
-      // Try to find existing list via slackLists.list
-      // Response shape varies: { lists: [...] } or { results: [...] } or { items: [...] }
-      let foundId = null;
+      // ALWAYS reuse the same "Pickle Inbox" list — never create a second one.
+      // Strategy:
+      //   1. Try slackLists.list to find existing list by name
+      //   2. If found, get col_ids from its schema (via slackLists.info or inline schema)
+      //   3. If slackLists.list fails or returns nothing → create fresh (one time only)
+      //   4. Caller should cache list_id + col_ids in state.json _list_registry to
+      //      avoid this lookup on every run.
+
+      let foundId   = null;
+      let foundCols = null;
+
       try {
         const resp = await slackCall("slackLists.list", {});
-        const arr = resp.lists ?? resp.results ?? resp.items ?? [];
-        const hit = arr.find(l => (l.name || l.title) === args.name);
-        if (hit) foundId = hit.id || hit.list_id;
+        const arr  = resp.lists ?? resp.results ?? resp.items ?? [];
+        const hit  = arr.find(l => (l.name || l.title) === args.name);
+        if (hit) {
+          foundId = hit.id || hit.list_id;
+          // Try to extract col_ids from the inline schema if present
+          const schema = hit.schema ?? hit.list_metadata?.schema ?? [];
+          if (schema.length > 0) {
+            foundCols = {};
+            for (const col of schema) foundCols[col.key] = col.id;
+          }
+        }
       } catch (e) {
         process.stderr.write(`[pickle-slack-mcp] slackLists.list failed: ${e.message}\n`);
       }
 
-      if (foundId) return { list_id: foundId, name: args.name, existed: true };
+      // If found but col_ids not in the list response, try slackLists.info
+      if (foundId && !foundCols) {
+        try {
+          const info   = await slackCall("slackLists.info", { list_id: foundId });
+          const schema = info.list?.schema ?? info.list_metadata?.schema ?? info.schema ?? [];
+          if (schema.length > 0) {
+            foundCols = {};
+            for (const col of schema) foundCols[col.key] = col.id;
+          }
+        } catch (e) {
+          process.stderr.write(`[pickle-slack-mcp] slackLists.info failed: ${e.message}\n`);
+          // col_ids will be null — caller must read from state.json _list_registry
+        }
+      }
 
-      // Create fresh
+      if (foundId) {
+        return { list_id: foundId, name: args.name, existed: true, col_ids: foundCols };
+      }
+
+      // No existing list found — create one (should only happen on first ever run)
       try {
         const created = await handleTool("slack_list_create", { name: args.name });
         return { ...created, existed: false };
-        // NOTE: col_ids is included in created — caller MUST pass it to slack_list_item_add
       } catch (e) {
         return { list_id: null, error: e.message, fallback: "self_dm" };
       }
@@ -380,7 +412,7 @@ async function handleTool(name, args) {
 // ---------------------------------------------------------------------------
 
 const server = new Server(
-  { name: "pickle-slack-mcp", version: "1.5.0" },
+  { name: "pickle-slack-mcp", version: "1.6.0" },
   { capabilities: { tools: {} } }
 );
 

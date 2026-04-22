@@ -716,6 +716,22 @@ description:
 
 ---
 
+### Step 8.5 — Fire completion notification via Slack Reminder
+
+After ALL ClickUp tasks are created, set **one immediate Slack reminder** via `slack_reminder_add` (from `pickle-slack-mcp`). Reminders fire as real Slack push notifications — no DM needed, no channel post.
+
+```
+text:    "🥒 Pickle Task Board — Made from Pickle is Ready!\n[N] ClickUp tasks added · Open: https://app.clickup.com/[WORKSPACE_ID]/board/[TASK_BOARD_ID]"
+time:    NOW_UNIX + 30   (current Unix timestamp + 30 seconds)
+user_id: MY_SLACK_USER_ID
+```
+
+To get `MY_SLACK_USER_ID` if not already known: call `slack_auth_test` — it returns the Slack user ID.
+
+If `pickle-slack-mcp` is not connected, skip silently — the Claude Code report in Step 9 is sufficient. **Do NOT post a self-DM as fallback.**
+
+---
+
 ## STEP 9 — PRINT FINAL REPORT
 
 ```
