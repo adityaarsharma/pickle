@@ -26,9 +26,14 @@ The skill looks for lists named:
 - `Daily Inbox`
 - `[MY_NAME] Task Board`
 
+**Where does it create the task board?**
+Always in your **personal/private space** — never inside a shared company or team space. It identifies personal spaces by finding spaces where only you are a member. If none exist, it creates a new private space called `Personal` first.
+
+If you already have a list with one of the names above inside a personal space, it will use that automatically.
+
 To use a custom name, add it to the list in **STEP 2**:
 ```
-Search all spaces and lists for a list named "My Task Board" or "[MY_NAME]'s Task Board"
+Search personal spaces for a list named "My Task Board" or "[MY_NAME]'s Task Board"
 or "Task Board" or "Daily Inbox" or "[MY_NAME] Task Board" or "YOUR CUSTOM NAME HERE".
 ```
 

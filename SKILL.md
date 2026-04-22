@@ -70,15 +70,20 @@ Print: `👤 Running as: $MY_NAME (ID: $MY_USER_ID) in workspace $WORKSPACE_ID`
 
 ## STEP 2 — FIND OR CREATE PERSONAL TASK BOARD
 
+**This task board is always personal — never created inside a shared team/company space.**
+
 1. Call `clickup_get_workspace_hierarchy` on the workspace.
-2. Search all spaces and lists for a list matching any of:
-   - "My Task Board", "[MY_NAME]'s Task Board", "Task Board", "Daily Inbox", "[MY_NAME] Task Board"
-3. If found → use that list, store as `TASK_BOARD_ID`.
-4. If NOT found:
-   - Create a new list called `My Task Board` in the user's private space (look for a space named "Private" or create one).
+2. From the hierarchy, identify **personal spaces** — spaces where the only member is `MY_USER_ID` (i.e. no other members listed, or space name matches "Private", "Personal", or `MY_NAME`).
+3. Search personal spaces first for a list matching any of:
+   - `"My Task Board"`, `"[MY_NAME]'s Task Board"`, `"Task Board"`, `"Daily Inbox"`, `"[MY_NAME] Task Board"`
+4. If found → use that list, store as `TASK_BOARD_ID`.
+5. If NOT found in personal spaces → also check shared/team spaces (user may have created the list there intentionally).
+6. If still NOT found anywhere → create a new list called `My Task Board`:
+   - **Always create inside a personal/private space** — pick the personal space identified in step 2.
+   - If no personal space exists, create a new space called `"Personal"` first (private, members: only `MY_USER_ID`), then create the list inside it.
    - Store the new list ID as `TASK_BOARD_ID`.
 
-Print: `📋 Task board ready (ID: $TASK_BOARD_ID)`
+Print: `📋 Task board ready: [list name] (ID: $TASK_BOARD_ID) — personal space ✓`
 
 ---
 
@@ -176,25 +181,50 @@ Store as `FOLLOWUP_ITEMS[]`:
 
 ---
 
-## STEP 5C — AUTO FOLLOW-UP (only if FOLLOWUP_MODE = true)
+## STEP 5C — FOLLOW-UP CONFIRMATION (only if FOLLOWUP_MODE = true)
 
-If `FOLLOWUP_MODE = true`, for each item in `FOLLOWUP_ITEMS[]`:
+If `FOLLOWUP_MODE = true` AND `FOLLOWUP_ITEMS[]` is not empty:
 
-Call `clickup_send_chat_message` in the same channel/thread with a professional follow-up:
+**Do NOT auto-send anything.** First show the user exactly what was found and ask for confirmation.
+
+Print a numbered list of all follow-up items:
 
 ```
-Hey [their name] 👋 — just following up on this. Could you please update me on [what was asked]? Thanks!
+📨 FOLLOW-UPS READY TO SEND
+
+Found [N] pending items where you're waiting on someone:
+
+1. → Jordan (jordan@company.com)
+   Asked: "Can you finish the setup docs by Friday?"
+   Channel: #dev-team · 2 days ago
+   Message: https://app.clickup.com/...
+
+2. → Sam
+   Asked: "Please update the pricing page and let me know"
+   Channel: DM · 5 hours ago
+   Message: https://app.clickup.com/...
+
+...
+
+Which ones should I send follow-up reminders for?
+Reply with numbers (e.g. "1, 3"), "all", or "none" to skip.
 ```
 
-Rules for auto follow-up messages:
-- Only send if `days_pending >= 1` (don't follow up same-day)
-- Only send ONCE per item (check thread to see if a follow-up was already sent recently)
-- Keep the tone professional and friendly — never pushy
-- Add the auto-follow-up note to the task description so there's a record
+Wait for the user's reply. Then:
+- Send `clickup_send_chat_message` only for confirmed items
+- Message template:
+  ```
+  Hey [name] 👋 — just following up on this. Could you share an update on [what was asked]? Thanks!
+  ```
+- Rules:
+  - Only send if `days_pending >= 1`
+  - Only once per item (check thread for recent follow-ups first)
+  - Professional tone, never pushy
+- Print: `📨 Follow-up sent to [name] in [channel]` for each sent
+- Print: `⏭ Skipped [name] — not selected` for skipped items
+- Update the ClickUp task description to note the follow-up was sent
 
-Print: `📨 Follow-up sent to [name] in [channel]` for each sent message.
-
-If `FOLLOWUP_MODE = false` → list the follow-up items in the report but do NOT auto-send. Let user decide.
+If `FOLLOWUP_MODE = false` → list items in the report only. Do not ask or send anything.
 
 ---
 
@@ -342,8 +372,10 @@ description:
 
 ════════════════════════════════════════════════════
   Re-run: /make-my-clickup [time]
-  With auto follow-up: /make-my-clickup [time] followup
+  With follow-up: /make-my-clickup [time] followup
   Docs: https://github.com/adityaarsharma/make-my-clickup
+────────────────────────────────────────────────────
+  Built and Shipped by Aditya Sharma
 ════════════════════════════════════════════════════
 ```
 
@@ -351,4 +383,8 @@ If zero items found:
 ```
 ✅ All clear — no action items or pending follow-ups in [TIME_LABEL].
    Channels scanned: [N] · Messages reviewed: [N]
+
+────────────────────────────────────────────────────
+  Built and Shipped by Aditya Sharma
+════════════════════════════════════════════════════
 ```
