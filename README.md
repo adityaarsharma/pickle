@@ -82,15 +82,13 @@ Every entry has: direct link to the source message, exact quote, why it needs yo
 
 ## Install — one line
 
-Paste this into Claude Code:
+Paste this one line into Claude Code:
 
 ```
-Install Pickle from https://github.com/adityaarsharma/pickle — clone the repo,
-then copy every folder inside (pickle-setup, pickle-clickup, pickle-slack,
-pickle-mcp) into ~/.claude/skills/. Then run /pickle-setup.
+Install Pickle from github.com/adityaarsharma/pickle and run /pickle-setup
 ```
 
-Claude Code does the copy. The wizard handles everything else — asks your name, asks Slack/ClickUp/both, walks you through connecting, verifies, asks your preferences, runs one restart only when actually needed, and tells you exactly what to run next. ~3 minutes.
+That's it. Claude Code clones the repo, copies every skill folder (`pickle-setup`, `pickle-clickup`, `pickle-slack`, `pickle-mcp`) into `~/.claude/skills/`, and hands off to the setup wizard. ~3 minutes, one question at a time.
 
 **100% free.** Pickle ships its own open-source ClickUp MCP (`pickle-mcp/clickup/`) — no paid dependencies, no license keys, no rate limits. Slack uses the official free OAuth connector or your own free Slack app — your choice.
 
