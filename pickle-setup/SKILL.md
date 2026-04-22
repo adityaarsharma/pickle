@@ -74,6 +74,57 @@ If user says "both" → print:
 
 ---
 
+## STEP 1.5 — FETCH ONLY THE SKILLS USER NEEDS
+
+Based on `ECO_CHOICE`, pull only the required skills from the Pickle repo into `~/.claude/skills/`. **Never download skills the user didn't pick** — that's wasteful and clutters their command palette.
+
+Skills map:
+- `clickup` → need `pickle-clickup` + `pickle-mcp/clickup`
+- `slack` → need `pickle-slack`
+- `both` → need all three
+
+Print:
+```
+────────────────────────────────────────────────────
+  📦 Fetching the skills you need
+────────────────────────────────────────────────────
+
+[For clickup:]
+  • pickle-clickup   (the ClickUp inbox-scan skill)
+  • pickle-mcp       (Pickle's own free ClickUp MCP server)
+
+[For slack:]
+  • pickle-slack     (the Slack inbox-scan skill)
+
+Fetching from github.com/adityaarsharma/pickle...
+```
+
+Use Bash to fetch. Clone to a temp dir, copy only needed subfolders, clean up:
+
+```bash
+TMPDIR=$(mktemp -d)
+git clone --depth 1 https://github.com/adityaarsharma/pickle.git "$TMPDIR" 2>/dev/null
+mkdir -p ~/.claude/skills
+
+# Based on ECO_CHOICE:
+if clickup needed → cp -R "$TMPDIR/pickle-clickup" ~/.claude/skills/
+if clickup needed → cp -R "$TMPDIR/pickle-mcp" ~/.claude/skills/
+if slack needed   → cp -R "$TMPDIR/pickle-slack" ~/.claude/skills/
+
+rm -rf "$TMPDIR"
+```
+
+**Skip any skill that already exists** in `~/.claude/skills/` — user may be re-running setup to add a second ecosystem.
+
+After fetch, confirm:
+```
+✓ Installed pickle-clickup
+✓ Installed pickle-mcp
+✓ (pickle-slack skipped — not needed for ClickUp-only)
+```
+
+---
+
 ## STEP 2 — AUTH METHOD (per ecosystem)
 
 For each ecosystem the user picked, ask:
@@ -490,49 +541,6 @@ When ready, run whichever commands apply:
 - If ecosystem includes slack → run `/pickle-slack 24h`
 
 Show the output.
-
----
-
-## STEP 8.5 — CLEAN UP UNUSED SKILLS
-
-**Based on `ECO_CHOICE`, delete the skill folder the user won't use** so the unused slash command doesn't show up in autocomplete.
-
-Print:
-```
-────────────────────────────────────────────────────
-  🧹 Tidy up
-────────────────────────────────────────────────────
-
-You picked [ClickUp only / Slack only / Both].
-
-[If clickup only]
-  I'll remove the Slack skill so /pickle-slack doesn't clutter
-  your command list. You can always re-add it later by running
-  /pickle-setup again and picking Slack.
-
-[If slack only]
-  I'll remove the ClickUp skill so /pickle-clickup doesn't clutter
-  your command list. You can always re-add it later.
-
-[If both]
-  Keeping both — nothing to clean up.
-
-  👉 Proceed? (yes/no)
-```
-
-If yes:
-
-- `ECO_CHOICE = clickup` → delete `~/.claude/skills/pickle-slack/` (use `rm -rf`). Also, if `~/.claude.json` has a `slack` MCP server entry that **you** wrote earlier in this setup, remove it from the config (merge-preserve other servers).
-- `ECO_CHOICE = slack` → delete `~/.claude/skills/pickle-clickup/` and remove the `clickup` MCP server entry.
-- `ECO_CHOICE = both` → skip.
-
-**Never delete `pickle-setup/` itself** — the user might re-run it. **Never delete MCP servers you didn't create** (look at Pickle's prefs.json to track which ones Pickle added).
-
-Confirm once done:
-```
-✓ Removed pickle-[slack/clickup] skill folder.
-✓ Removed unused [slack/clickup] MCP server from config.
-```
 
 ---
 
