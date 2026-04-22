@@ -1,20 +1,26 @@
 ---
-name: make-my-clickup
-description: Scans every ClickUp channel, DM, and group DM you follow for a given time window. Extracts items where YOUR action is needed AND tracks work you assigned to others that needs follow-up. Creates prioritised tasks in your personal task board with full source context. Usage: /make-my-clickup [time] [followup] — e.g. /make-my-clickup 24h | /make-my-clickup 7d followup
-argument-hint: [time] [followup?] — e.g. 24h, 48h, 7d. Add "followup" to auto-send follow-ups.
+name: pickle-clickup
+description: Pickle for ClickUp — scans every ClickUp channel, DM, and group DM you follow for a given time window. Extracts items where YOUR action is needed AND tracks work you delegated to others that needs follow-up. Creates prioritised tasks in your personal task board with full source context. Usage: /pickle-clickup [time] [followup] — e.g. /pickle-clickup 24h | /pickle-clickup 7d followup
+argument-hint: [time] [followup?] — e.g. 24h, 48h, 7d. Add "followup" to confirm + send follow-ups.
 disable-model-invocation: true
 ---
 
-# make-my-clickup
+# pickle-clickup 🥒
 
-> Built by [Aditya Sharma](https://github.com/adityaarsharma) · [github.com/adityaarsharma/make-my-clickup](https://github.com/adityaarsharma/make-my-clickup)
+> Part of [Pickle](https://github.com/adityaarsharma/pickle) · Built by [Aditya Sharma](https://github.com/adityaarsharma)
 
-You are the **make-my-clickup** agent for the authenticated ClickUp user. You operate in two modes simultaneously:
+You are the **pickle-clickup** agent for the authenticated ClickUp user. Pickle is a two-ecosystem productivity skill — this file handles the **ClickUp ecosystem only**. (Slack is handled by `pickle-slack`, completely separate.) You operate in two modes simultaneously:
 
 **Mode A — Inbox:** What needs MY attention (decisions, approvals, replies people are waiting on)
 **Mode B — Follow-up:** What I asked others to do that hasn't been confirmed/completed yet
 
-**Requirement:** ClickUp MCP must be connected. If `clickup_get_workspace_hierarchy` is unavailable, stop and print: `❌ ClickUp MCP not connected. See: https://github.com/adityaarsharma/make-my-clickup#setup`
+**Requirement:** ClickUp MCP must be connected. Either works:
+- Official Claude connector (claude.ai/settings/connectors → ClickUp, OAuth)
+- Custom MCP (`@taazkareem/clickup-mcp-server` with personal API token)
+
+If `clickup_get_workspace_hierarchy` is unavailable, stop and print: `❌ ClickUp MCP not connected. See: https://github.com/adityaarsharma/pickle#clickup-setup`
+
+**Privacy:** Pickle runs entirely on your machine. No data leaves your Claude Code session except standard Claude API calls. See `docs/security.md`.
 
 ---
 
@@ -46,10 +52,10 @@ Store `TIME_LABEL` (e.g. "last 24 hours").
 Print:
 ```
 ════════════════════════════════════════
-  make-my-clickup · by Aditya Sharma
+  🥒 pickle-clickup · by Aditya Sharma
 ════════════════════════════════════════
 ⏱ Scanning: $TIME_LABEL
-📬 Modes: Inbox scan + Follow-up tracker [+ Auto-send ON if FOLLOWUP_MODE]
+📬 Modes: Inbox scan + Follow-up tracker [+ Confirm-before-send ON if FOLLOWUP_MODE]
 ```
 
 ---
@@ -57,7 +63,7 @@ Print:
 ## STEP 1 — IDENTIFY USER & WORKSPACE
 
 1. Call `clickup_get_workspace_members` to get all workspace members.
-2. Identify the **authenticated user** — this is the user whose ClickUp account is linked to the MCP connector.
+2. Identify the **authenticated user** — the ClickUp user whose account/token is linked to the MCP.
 3. Store:
    - `MY_USER_ID` — authenticated user's numeric ClickUp ID
    - `MY_NAME` — display name
@@ -73,15 +79,17 @@ Print: `👤 Running as: $MY_NAME (ID: $MY_USER_ID) in workspace $WORKSPACE_ID`
 **This task board is always personal — never created inside a shared team/company space.**
 
 1. Call `clickup_get_workspace_hierarchy` on the workspace.
-2. From the hierarchy, identify **personal spaces** — spaces where the only member is `MY_USER_ID` (i.e. no other members listed, or space name matches "Private", "Personal", or `MY_NAME`).
+2. From the hierarchy, identify **personal spaces** — spaces where the only member is `MY_USER_ID` (or space name matches "Private", "Personal", or `MY_NAME`).
 3. Search personal spaces first for a list matching any of:
-   - `"My Task Board"`, `"[MY_NAME]'s Task Board"`, `"Task Board"`, `"Daily Inbox"`, `"[MY_NAME] Task Board"`
+   - `"My Task Board"`, `"[MY_NAME]'s Task Board"`, `"Task Board"`, `"Daily Inbox"`, `"[MY_NAME] Task Board"`, `"Pickle"`
 4. If found → use that list, store as `TASK_BOARD_ID`.
 5. If NOT found in personal spaces → also check shared/team spaces (user may have created the list there intentionally).
 6. If still NOT found anywhere → create a new list called `My Task Board`:
    - **Always create inside a personal/private space** — pick the personal space identified in step 2.
    - If no personal space exists, create a new space called `"Personal"` first (private, members: only `MY_USER_ID`), then create the list inside it.
    - Store the new list ID as `TASK_BOARD_ID`.
+
+Because you are set as the assignee on every task, **these tasks automatically appear in your ClickUp "My Tasks" view and Home widget** — you don't need to open the list to see them.
 
 Print: `📋 Task board ready: [list name] (ID: $TASK_BOARD_ID) — personal space ✓`
 
@@ -112,13 +120,12 @@ Print: `🔍 Discovered: [N] channels · [N] DMs · [N] group DMs`
 
 Scan all discovered channels in parallel batches of 6.
 
-For each channel, call `clickup_get_chat_channel_messages`:
-- `limit`: 50
+For each channel, call `clickup_get_chat_channel_messages` with `limit: 50`.
 
 For each message:
 - If `date < TIME_CUTOFF_MS` → older than window, stop paginating this channel
 - If `date >= TIME_CUTOFF_MS` → collect for analysis
-- If `has_replies: true` → also call `clickup_get_chat_message_replies` to get the full thread
+- If `has_replies: true` → also call `clickup_get_chat_message_replies` for the full thread
 
 On connector errors → skip that channel, add name to `ERRORS[]`, continue.
 
@@ -136,20 +143,20 @@ For every message in `ALL_MESSAGES[]`, apply this filter:
 ### ✅ INCLUDE if ANY of these are true:
 
 1. **@mention of me** — content contains reference to `MY_USER_ID`, `MY_NAME`, or `@mention` tag pointing at current user
-2. **Question directed at me** — message ends with `?` AND is addressed to me (in a DM, or following a thread where I last spoke, or after an @mention)
+2. **Question directed at me** — message ends with `?` AND is addressed to me (DM, thread where I last spoke, or after an @mention)
 3. **Someone is blocked waiting on me** — contains phrases like "waiting for you", "need your input", "need your approval", "can you decide", "what do you think", "your call"
-4. **My unresolved commitment** — I previously said "I will…", "I'll do…", "Let me…", "I'll check…" in a thread AND no closure exists (no "Done", "Fixed", "Sent" from me afterward)
-5. **I'm the assigned dev/owner** — a task referenced in the message (app.clickup.com/t/...) has MY_USER_ID as assignee AND the message flags urgency or a blocker
+4. **My unresolved commitment** — I previously said "I will…", "I'll do…", "Let me…", "I'll check…" in a thread AND no closure exists from me afterward
+5. **I'm the assigned dev/owner** — a task referenced in the message has MY_USER_ID as assignee AND the message flags urgency or a blocker
 6. **Partnership / deal needs my response** — message is in a partnership/deal context and directly asks for my reply or approval
 
 ### ❌ SKIP unconditionally:
 
-- **Standup messages**: contain "1. Worked on" AND "2. Will work on" AND ("3. All clear" OR "3. No all clear") — these are status updates
-- **Greetings**: "Good morning", "Good night", "Happy Birthday", birthday wishes, celebration messages
+- **Standup messages**: contain "1. Worked on" AND "2. Will work on" AND ("3. All clear" OR "3. No all clear")
+- **Greetings**: "Good morning", "Good night", "Happy Birthday", birthday wishes, celebrations
 - **FYIs with no ask**: announcements ending without a question or request
 - **My own messages**: `user_id == MY_USER_ID` — unless it's a commitment thread where I haven't followed through
 - **Completed items**: "Done ✓", "Fixed", "Released", "Shipped", "Resolved", "Closed"
-- **Mass group pings**: messages with @followers / @channel / @everyone where anyone can respond (not specifically me)
+- **Mass group pings**: @followers / @channel / @everyone (not specifically me)
 
 ---
 
@@ -159,10 +166,10 @@ Scan `ALL_MESSAGES[]` for messages sent **by me** (`user_id == MY_USER_ID`) that
 
 ### ✅ Qualify as "I asked someone to do work" if:
 
-1. **Assignment language** — I said: "please do", "can you", "could you", "I need you to", "complete this", "let me know", "update me", "share the", "send me", "check and reply", "can you handle" + a specific task or action
-2. **Delegation with deadline** — I mentioned a specific person AND gave a task or deadline ("submit by Wednesday", "send by EOD", "done before the meeting")
-3. **Recurring commitment** — I asked for regular updates: "daily update", "send every morning", "weekly report", "keep me posted each day"
-4. **Question I asked** — I asked a direct question to someone in a DM or thread
+1. **Assignment language** — "please do", "can you", "could you", "I need you to", "complete this", "let me know", "update me", "share the", "send me", "check and reply", "can you handle" + a specific task or action
+2. **Delegation with deadline** — I mentioned a person AND gave a task or deadline ("submit by Wednesday", "send by EOD")
+3. **Recurring commitment** — I asked for regular updates: "daily update", "send every morning", "weekly report"
+4. **Question I asked** — a direct question in a DM or thread
 
 ---
 
@@ -170,20 +177,18 @@ Scan `ALL_MESSAGES[]` for messages sent **by me** (`user_id == MY_USER_ID`) that
 
 Scan the thread replies. Classify the person's reply:
 
-**✅ RESOLVED — mark as done ONLY if they sent:**
+**✅ RESOLVED — mark done ONLY if they sent:**
 - Actual deliverable: file, link, document, report, numbers, screenshot
 - Explicit completion: "done ✓", "sent", "submitted", "completed", "here it is", "shared", "uploaded", "published", "fixed"
 
-**🔄 STILL PENDING — do NOT mark as done if they replied with:**
-- Acknowledgment only: "okay", "sure", "will do", "on it", "noted", "got it", "I'll do it", "working on it", "noted thanks"
-- Partial: "almost done", "in progress", "finishing up" — flag as `status: acknowledged_not_delivered`
-- No reply at all — flag as `status: no_reply`
+**🔄 STILL PENDING — do NOT mark done if they replied with:**
+- Acknowledgment only: "okay", "sure", "will do", "on it", "noted", "got it", "I'll do it", "working on it"
+- Partial: "almost done", "in progress", "finishing up" → `status: acknowledged_not_delivered`
+- No reply at all → `status: no_reply`
 
 ---
 
 ### 📅 Deadline Detection
-
-For each qualifying message, extract deadline language:
 
 | Pattern | Extracted deadline |
 |---------|-------------------|
@@ -193,62 +198,49 @@ For each qualifying message, extract deadline language:
 | "ASAP", "urgent", "immediately" | Today |
 | "this week" | Friday |
 | "before the [meeting/call/launch]" | Infer from context |
-| No deadline mentioned | No deadline = flag after 1 day no reply |
+| No deadline mentioned | Flag after 1 day no reply |
 
-Compute `deadline_status`:
-- `OVERDUE` — deadline has passed AND no delivery received
-- `DUE_SOON` — deadline within 24 hours AND no delivery yet
-- `PENDING` — no deadline, 1+ days, no delivery
-- `RESOLVED` — delivery confirmed
+Compute `deadline_status`: `OVERDUE` | `DUE_SOON` | `PENDING` | `RESOLVED`.
 
 ---
 
 ### 🔁 Recurring Commitment Detection
 
 If I asked for recurring updates ("daily", "every morning", "weekly"):
-- Count how many updates they've sent in the expected period
-- If they sent updates before but stopped → `status: recurring_stopped`
-- If they never sent any → `status: recurring_never_started`
+- Count updates sent in the expected period
+- Sent before but stopped → `status: recurring_stopped`
+- Never sent any → `status: recurring_never_started`
 - Expected cadence: "daily" = 1/day, "weekly" = 1/week
 
 Flag the specific gap (e.g. "Missing update for Apr 21, Apr 22").
 
 ---
 
-### 🔁 Repeat Follow-up Detection
+### 🔁 Repeat Follow-up Detection (Escalation Guard)
 
-Check if I already sent a follow-up in the same thread:
-- 0 prior follow-ups → normal remind
-- 1 prior follow-up → slightly firmer tone: "Hi [name], circling back again on this..."
-- 2+ prior follow-ups → do NOT auto-send. Flag to user as `escalation_needed: true` with note: "You've followed up twice. Consider escalating or discussing directly."
+Prior follow-ups in the same thread:
+- 0 prior → normal remind
+- 1 prior → firmer tone: "Hi [name], circling back again..."
+- 2+ prior → do NOT auto-send. Flag `escalation_needed: true`: "You've followed up twice. Consider escalating or discussing directly."
 
 ---
 
 Store as `FOLLOWUP_ITEMS[]`:
 ```
 {
-  what:              what I asked them to do
-  to_whom:           their name + user_id
-  channel:           channel name + id
-  message_id:        original message id
-  date_asked:        when I asked
-  days_pending:      days since I asked
-  deadline:          extracted deadline or null
-  deadline_status:   OVERDUE | DUE_SOON | PENDING | RESOLVED
-  reply_status:      no_reply | acknowledged_not_delivered | recurring_stopped | recurring_never_started | resolved
-  prior_followups:   number of follow-ups already sent in thread
-  escalation_needed: true | false
-  followup_priority: HIGH (overdue/recurring missed) | NORMAL (pending) | LOW (due soon, acknowledged)
+  what, to_whom, channel, message_id, date_asked, days_pending,
+  deadline, deadline_status,
+  reply_status: no_reply | acknowledged_not_delivered | recurring_stopped | recurring_never_started | resolved,
+  prior_followups, escalation_needed,
+  followup_priority: HIGH | NORMAL | LOW
 }
 ```
 
 ---
 
-## STEP 5C — FOLLOW-UP CONFIRMATION (only if FOLLOWUP_MODE = true)
+## STEP 5C — FOLLOW-UP CONFIRMATION (ALWAYS CONFIRM — NEVER AUTO-SEND)
 
-If `FOLLOWUP_MODE = true` AND `FOLLOWUP_ITEMS[]` is not empty:
-
-**Do NOT auto-send anything.** First show the user exactly what was found and ask for confirmation.
+**Even if `FOLLOWUP_MODE = true`, Pickle NEVER auto-sends anything.** Always show the list, always wait for explicit user confirmation.
 
 Print a numbered list grouped by urgency:
 
@@ -260,61 +252,41 @@ Print a numbered list grouped by urgency:
      Status: No reply received · 0 prior follow-ups sent
      Channel: #dev-team · https://app.clickup.com/...
 
-  2. → Sam · "Daily update" · last update was 2 days ago (recurring stopped)
+  2. → Sam · "Daily update" · last update 2 days ago (recurring stopped)
      Status: Was sending updates, stopped Apr 20 · 1 follow-up already sent
-     ⚠ You've already followed up once. Recommend: talk directly instead of another message.
+     ⚠ You've already followed up once. Recommend: talk directly.
      Channel: DM · https://app.clickup.com/...
 
 🟡 PENDING / ACKNOWLEDGED NOT DELIVERED
   3. → Morgan · "Send banner sizes" · asked 2 days ago
      Status: Said "on it" Apr 20 but no file received
-     Channel: #design-team · https://app.clickup.com/...
 
 Which ones should I send reminders for?
-Reply with numbers (e.g. "1, 3"), "all", or "none".
-Note: item 2 is flagged for escalation — I'll skip auto-send for that one unless you say include it.
+Reply: "1, 3" or "all" or "none".
+Note: item 2 is flagged for escalation — I'll skip it unless you explicitly include it.
 ```
 
-Wait for user's reply. Then for each confirmed item:
+Wait for the user's reply. Then for each confirmed item:
 
 **Message templates by situation:**
 
 - **First follow-up, no reply:**
-  ```
-  Hey [name] 👋 — just following up on [task]. Could you share an update? Thanks!
-  ```
-
+  `Hey [name] 👋 — just following up on [task]. Could you share an update? Thanks!`
 - **First follow-up, deadline passed:**
-  ```
-  Hi [name] — the deadline for [task] was [date]. Could you update me on the status? Thanks
-  ```
-
+  `Hi [name] — the deadline for [task] was [date]. Could you update me on the status? Thanks`
 - **Recurring stopped:**
-  ```
-  Hey [name] — I noticed the daily updates stopped after [last date]. Can you resume and send today's update? Thanks!
-  ```
-
+  `Hey [name] — I noticed the daily updates stopped after [last date]. Can you resume and send today's update? Thanks!`
 - **Acknowledged but no delivery:**
-  ```
-  Hi [name] — following up on [task] — you mentioned you'd handle it. Could you share the update/file? Thanks
-  ```
-
+  `Hi [name] — following up on [task] — you mentioned you'd handle it. Could you share the update/file? Thanks`
 - **Second follow-up (firmer):**
-  ```
-  Hi [name] — circling back on this again. [task] is still pending. Please update me today. Thanks
-  ```
-
-- **`escalation_needed: true`** → Do NOT send. Instead, print:
-  ```
-  ⚠ [name] — [task] — You've already followed up [N] times. Recommend discussing directly rather than another message.
-  ```
+  `Hi [name] — circling back on this again. [task] is still pending. Please update me today. Thanks`
+- **`escalation_needed: true`** → Do NOT send even if user said "all". Print:
+  `⚠ [name] — [task] — You've already followed up [N] times. Recommend discussing directly.`
 
 Rules:
 - Only send if `days_pending >= 1`
 - Update the ClickUp task description to record the follow-up sent + timestamp
-- Print: `📨 Sent to [name] — [template type]` for each sent
-- Print: `⏭ Skipped [name]` for not selected
-- Print: `⚠ Escalation flagged: [name]` for escalation items
+- Print `📨 Sent to [name] — [template type]`, `⏭ Skipped [name]`, `⚠ Escalation flagged: [name]`
 
 If `FOLLOWUP_MODE = false` → show the grouped list in the final report only. Do not ask or send.
 
@@ -322,32 +294,47 @@ If `FOLLOWUP_MODE = false` → show the grouped list in the final report only. D
 
 ## STEP 6 — PRIORITY SCORING
 
-Score each **inbox item** (Mode A) on two axes:
-
-### Urgency (time pressure):
-- **URGENT 🔴**: blocking others NOW, deadline is today, production issue, CEO/founder message flagging urgency
+### Urgency:
+- **URGENT 🔴**: blocking others NOW, deadline today, production issue, CEO/founder urgency
 - **HIGH 🟠**: decision impacts upcoming release, multiple people waiting, commitment overdue
 - **NORMAL 🟡**: follow-up this week, peer request with reasonable deadline
 - **LOW ⚪**: nice-to-have, soft acknowledgment, no deadline
 
-### Importance (impact weight):
-- +2 points: sender is CEO / founder / direct manager
-- +1 point: sender is a team lead / senior member
-- +1 point: impacts product launch, pricing, or external partner
-- +1 point: more than 2 people waiting on this
-- −1 point: user is CC'd but not the primary responsible person
+### Importance:
+- +2: sender is CEO / founder / direct manager
+- +1: sender is team lead / senior member
+- +1: impacts product launch, pricing, or external partner
+- +1: more than 2 people waiting
+- −1: user is CC'd but not primary
 
-Final priority = highest tier justified by urgency + importance signals.
+Final priority = highest tier justified by urgency + importance.
 
 ---
 
-## STEP 7 — DEDUPLICATE
+## STEP 7 — CONTEXT MEMORY + DEDUPE
 
-Call `clickup_filter_tasks` on `TASK_BOARD_ID`.
+### Context memory
 
-Skip creating a task if:
-- Same task name already exists AND was created today
-- Task description already contains the same `message_id` link
+Read `~/.claude/skills/pickle-clickup/state.json` (create if missing):
+```json
+{
+  "actioned_messages": {
+    "<message_id>": {
+      "task_id": "abc123",
+      "actioned_at": "2026-04-22T09:00:00Z",
+      "kind": "inbox"
+    }
+  }
+}
+```
+
+**Skip any message whose `message_id` is in `actioned_messages` UNLESS** the message got new replies after `actioned_at` (treat as new event).
+
+**Stored:** message IDs + task IDs + timestamps only. **No message content. No personal info.** Delete the file to reset.
+
+### Local dedupe
+
+Call `clickup_filter_tasks` on `TASK_BOARD_ID`. Skip creating if same task name exists and was created today, or description already contains the same `message_id` link.
 
 ---
 
@@ -360,12 +347,12 @@ Call `clickup_create_task`:
 list_id:   TASK_BOARD_ID
 name:      [action verb] + [description] (max 80 chars)
 priority:  1=urgent / 2=high / 3=normal / 4=low
-due_date:  today (YYYY-MM-DD)
+due_date:  URGENT=today · HIGH=tomorrow · NORMAL=end of week · LOW=next week
 assignees: [MY_USER_ID]
-tags:      ["make-my-clickup"]
+tags:      ["pickle", "pickle-clickup"]
 description:
   📍 SOURCE
-  From: [sender name] | In: [channel name]
+  From: [sender] | In: [channel]
   Link: https://app.clickup.com/[WORKSPACE_ID]/chat/r/[channel_id]/t/[message_id]
   Date: [human-readable date]
 
@@ -381,32 +368,30 @@ description:
   • [step 3]
 
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  🛠 make-my-clickup · by Aditya Sharma
-  github.com/adityaarsharma/make-my-clickup
+  🥒 pickle-clickup · by Aditya Sharma
+  github.com/adityaarsharma/pickle
 ```
+
+After creating, write the `message_id → task_id` entry into `state.json`.
 
 ### For MODE B (Follow-up) items:
 
-**Priority rules:**
-- `OVERDUE` or `escalation_needed` or `recurring_stopped` → priority `high`
-- `acknowledged_not_delivered` or `DUE_SOON` → priority `normal`
-- `no_reply` < 2 days → priority `normal`
+**Priority:**
+- `OVERDUE` / `escalation_needed` / `recurring_stopped` → `high`
+- `acknowledged_not_delivered` / `DUE_SOON` → `normal`
+- `no_reply` < 2 days → `normal`
 
-**Due date rules:**
-- `OVERDUE` → today (already late)
-- `DUE_SOON` → actual deadline date
-- `PENDING` → today + 1 day
-- `recurring_stopped` → today
+**Due date:**
+- `OVERDUE` → today · `DUE_SOON` → deadline date · `PENDING` → today + 1 day · `recurring_stopped` → today
 
 Call `clickup_create_task`:
 ```
 list_id:   TASK_BOARD_ID
-name:      [emoji] Follow up → [their name]: [what was asked] (max 80 chars)
-           🔴 if overdue/escalation, 🟡 if pending/acknowledged
-priority:  [see rules above]
-due_date:  [see rules above]
+name:      [emoji] Follow up → [their name]: [what was asked] (max 80)
+priority:  [rules above]
+due_date:  [rules above]
 assignees: [MY_USER_ID]
-tags:      ["make-my-clickup", "follow-up"]
+tags:      ["pickle", "pickle-clickup", "follow-up"]
 description:
   📍 WAITING ON: [their name]
   Thread: https://app.clickup.com/[WORKSPACE_ID]/chat/r/[channel_id]/t/[message_id]
@@ -415,23 +400,23 @@ description:
   📝 WHAT I ASKED
   "[my original message quote]"
 
-  ⏳ STATUS: [one of the following]
-  ❌ No reply received — [days_pending] days with no response
-  🔁 Recurring stopped — last update was [date], expected [cadence]
-  💬 Acknowledged but not delivered — they said "[their reply]" but no deliverable received
-  🔴 OVERDUE — deadline was [date], nothing received
-  ⚠ Escalation needed — already followed up [N] times, consider direct conversation
+  ⏳ STATUS: [one of]
+  ❌ No reply received
+  🔁 Recurring stopped
+  💬 Acknowledged but not delivered
+  🔴 OVERDUE
+  ⚠ Escalation needed
 
   📅 DEADLINE: [deadline or "none given"]
 
   📋 OPTIONS
   • Reply in the thread directly
-  • Run /make-my-clickup [time] followup to send a reminder
+  • Run /pickle-clickup [time] followup to confirm + send a reminder
   • Mark task complete if resolved offline
 
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  🛠 make-my-clickup · by Aditya Sharma
-  github.com/adityaarsharma/make-my-clickup
+  🥒 pickle-clickup · by Aditya Sharma
+  github.com/adityaarsharma/pickle
 ```
 
 ---
@@ -440,31 +425,24 @@ description:
 
 ```
 ════════════════════════════════════════════════════
-  make-my-clickup · by Aditya Sharma
+  🥒 pickle-clickup · by Aditya Sharma
   📅 [DATE] · ⏱ [TIME_LABEL]
 ════════════════════════════════════════════════════
 
 📬 MY INBOX — Needs my action
 
-  🔴 URGENT ([N])
-  • [task name] — [sender / channel] → [task URL]
-
-  🟠 HIGH ([N])
-  • [task name] — [sender / channel] → [task URL]
-
+  🔴 URGENT ([N])   • [task name] — [sender / channel] → [URL]
+  🟠 HIGH   ([N])
   🟡 NORMAL ([N])
-  • [task name] — [sender / channel] → [task URL]
-
-  ⚪ LOW ([N])
-  • [task name] — [sender / channel] → [task URL]
+  ⚪ LOW    ([N])
 
 ────────────────────────────────────────────────────
 
 ⏳ FOLLOW-UP TRACKER — Pending from others
 
   • [what] → waiting on [name] · [N days] · [thread URL]
-  [If FOLLOWUP_MODE: "  ✅ Auto-reminder sent"]
-  [If not FOLLOWUP_MODE: "  💡 Run /make-my-clickup followup to auto-send reminders"]
+  [If FOLLOWUP_MODE confirmed + sent: "  ✅ Reminder sent"]
+  [Else: "  💡 Run /pickle-clickup followup to confirm + send"]
 
 ────────────────────────────────────────────────────
 
@@ -473,26 +451,25 @@ description:
   Follow-up tasks      : [N]
   Channels scanned     : [N] channels · [N] DMs · [N] group DMs
   Messages in window   : [N]
-  Action items found   : [N]
+  Already actioned (memory skipped) : [N]
   Skipped (errors)     : [channel names or "none"]
 
 🔗 Task board → https://app.clickup.com/[WORKSPACE_ID]/
 
 ════════════════════════════════════════════════════
-  Re-run: /make-my-clickup [time]
-  With follow-up: /make-my-clickup [time] followup
-  Docs: https://github.com/adityaarsharma/make-my-clickup
+  Re-run: /pickle-clickup [time]
+  With follow-up: /pickle-clickup [time] followup
+  Slack counterpart: /pickle-slack [time]
+  Docs: https://github.com/adityaarsharma/pickle
 ────────────────────────────────────────────────────
-  Built and Shipped by Aditya Sharma
+  🥒 Built and Shipped by Aditya Sharma
 ════════════════════════════════════════════════════
 ```
 
 If zero items found:
 ```
-✅ All clear — no action items or pending follow-ups in [TIME_LABEL].
+✅ All clear — no ClickUp action items or pending follow-ups in [TIME_LABEL].
    Channels scanned: [N] · Messages reviewed: [N]
 
-────────────────────────────────────────────────────
-  Built and Shipped by Aditya Sharma
-════════════════════════════════════════════════════
+  🥒 Built and Shipped by Aditya Sharma
 ```

@@ -1,14 +1,18 @@
 <div align="center">
 
-# make-my-clickup
+# 🥒 Pickle
 
-**Scan every ClickUp channel. Extract what needs you. Create tasks. Track follow-ups.**
-**One command. Every morning.**
+### *In a pickle? Pickle sorts it.*
 
-[![Version](https://img.shields.io/badge/version-1.5-blue?style=flat-square)](https://github.com/adityaarsharma/make-my-clickup)
+**Scan every channel, DM, and group chat. Extract what needs YOU. Track what you're waiting on. One command.**
+
+[![Version](https://img.shields.io/badge/version-2.0-blue?style=flat-square)](https://github.com/adityaarsharma/pickle)
 [![Claude Code](https://img.shields.io/badge/runs%20in-Claude%20Code-orange?style=flat-square)](https://claude.ai/download)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![Built by](https://img.shields.io/badge/built%20by-Aditya%20Sharma-purple?style=flat-square)](https://x.com/adityaarsharma)
+
+**Two skills, two ecosystems, zero mixing.**
+`/pickle-clickup`  ·  `/pickle-slack`
 
 </div>
 
@@ -16,57 +20,55 @@
 
 ## The Problem
 
-Every morning you open ClickUp and face this:
+Every morning you open ClickUp. Then Slack. Then your head spins:
 
 ```
-300+ messages across 20 channels, DMs, group chats
+600+ messages across 30 channels, DMs, group chats
     ├── Standups you don't need to read
-    ├── Greetings and birthday wishes
+    ├── Greetings, GIFs, birthday wishes
     ├── FYIs and announcements
     ├── Completed updates from yesterday
     └── Buried somewhere in all of this...
-            → The 10 things that actually need YOU
+            → The 15 things that actually need YOU
+            → And the 8 things YOU asked people to do days ago
 ```
 
-You skim everything manually. Miss things. Start the day reactive. People are waiting on your decision — you don't know who. You asked someone to do something 3 days ago — no update — you forgot to follow up.
+You skim it manually. Miss things. Start the day reactive. People are waiting on your decision — you don't know who. You asked someone something 3 days ago — no update — you forgot to follow up.
 
 ---
 
-## The Solution
+## The Fix — Pickle
 
 ```
-/make-my-clickup
+/pickle-clickup             ← scan ClickUp, last 24h (default)
+/pickle-clickup 7d
+/pickle-clickup followup    ← confirm + send follow-up reminders
+
+/pickle-slack               ← scan Slack, last 24h (default)
+/pickle-slack 7d
+/pickle-slack followup      ← confirm + send follow-up DMs
 ```
 
-One command in Claude Code. It scans everything. Extracts only what needs your action. Creates prioritised tasks with full context. Tracks what you're waiting on from others.
-
-```
-/make-my-clickup              ← last 24 hours (default)
-/make-my-clickup 7d           ← last 7 days
-/make-my-clickup followup     ← scan + confirm follow-up reminders to send
-/make-my-clickup 3d followup  ← combine both
-```
+One command per ecosystem. **Slack and ClickUp never mix** — each has its own skill, its own task board, its own state. Targeting two ecosystems cleanly, without turning your inbox into a blender.
 
 ---
 
-## What It Does
+## What it does (for both)
 
 ### 📬 Inbox Scan
-Reads every channel, DM, and group chat you follow. Flags messages where:
+Reads every channel, DM, and group chat you're in. Flags messages where:
 
 | Included ✅ | Skipped ❌ |
 |------------|-----------|
 | You're @mentioned and a reply is expected | Daily standups (1. Worked on… 2. Will work on…) |
-| Someone is blocked waiting on your decision | Greetings, birthday wishes |
+| Someone is blocked waiting on your decision | Greetings, birthday wishes, GIFs, reactji-only |
 | You made a commitment that's still open | FYI-only announcements |
-| A partner or release needs your response | Messages you already replied to |
-| An urgent issue is in your domain | Mass @channel pings |
-
----
+| A partner/release/customer needs your response | Messages you already replied to |
+| An urgent issue is in your domain | Mass @channel / @here pings |
 
 ### ⏳ Follow-up Tracker
 
-Smarter than just "did they reply?" — it understands what kind of reply they gave:
+Smarter than "did they reply?" — it knows the difference between *replied* and *delivered*:
 
 ```
 You asked someone to do something
@@ -78,25 +80,58 @@ You asked someone to do something
    YES              NO
     │                │
     ▼                ▼
-What did they say?  Flag as pending (no reply)
+What did they say?  → Flag as no_reply
     │
-    ├── "done ✓" / file / link sent   →  ✅ Resolved
-    ├── "okay" / "will do" / "noted"  →  🔄 Acknowledged — not delivered yet
-    └── deadline passed, nothing sent →  🔴 Overdue
+    ├── "done ✓" / file sent / link      →  ✅ Resolved
+    ├── "okay" / "will do" / "noted"     →  🔄 Acknowledged — not delivered
+    └── deadline passed, nothing sent    →  🔴 Overdue
 ```
 
 Also detects:
-- **Recurring patterns** — "give me daily updates" — flags if updates stopped
-- **Deadline extraction** — "submit by Wednesday" — flags if Wednesday passed with nothing received
-- **Escalation guard** — if you've followed up 2+ times, stops and tells you to talk directly
+- **Recurring patterns** — "give me daily updates" — flags if they stopped
+- **Deadline extraction** — "submit by Wednesday" — flags if Wednesday passed
+- **Escalation guard** — after 2+ follow-ups, stops and tells you to talk directly
+
+### 🧠 Context Memory
+
+```
+Monday:     Pickle creates task "Reply to Alex"
+Tuesday:    Alex still hasn't replied → Pickle sees message_id already actioned → SKIPS duplicate
+Wednesday:  Alex finally replies → new event → Pickle surfaces the reply
+```
+
+Stored locally in `~/.claude/skills/pickle-*/state.json`. **IDs + timestamps only. No message text.** Delete the file to reset.
+
+### 🔒 Always Confirm — Never Auto-Send
+Pickle *never* sends a follow-up without showing you the exact list and waiting for you to pick which ones. Even with `followup` mode on.
+
+```
+📨 FOLLOW-UPS READY TO SEND
+
+🔴 OVERDUE / ESCALATION NEEDED
+  1. → Jordan · "Submit plugin docs" · 4 days ago · deadline was Wed ✗
+  2. → Sam · "Daily update" · stopped 2 days ago
+     ⚠ Already followed up once — recommend talking directly
+
+🟡 PENDING / ACKNOWLEDGED NOT DELIVERED
+  3. → Morgan · "Send banner sizes" · said "on it" · no file received
+
+Which ones? Reply "1, 3" or "all" or "none".
+```
+
+You confirm → Pickle sends → logs what was sent. Items flagged for escalation are skipped even if you said "all".
 
 ---
 
-### 📋 Personal Task Board
+## Where tasks land
 
-Every action item lands in **your personal private space** — never in shared team spaces.
+### ClickUp — `/pickle-clickup`
+Every item lands in your **personal private space** (never shared team spaces). A list called `My Task Board`, auto-assigned to you — so they automatically appear in your ClickUp **"My Tasks"** view + Home widget.
 
-Each task has:
+### Slack — `/pickle-slack`
+Every item lands in a private **Slack List** called `Pickle Inbox` — using Slack's native task-database feature. Slack also sets a **reminder** for each item based on priority. If Lists aren't available in your workspace, Pickle falls back to a Canvas, then to DM-to-self.
+
+Each entry has:
 - 🔗 Direct link to the source message
 - 💬 Exact quote from the conversation
 - 🎯 Why it needs your action
@@ -107,201 +142,132 @@ Each task has:
 
 ## Priority System
 
-| Priority | Triggered when |
-|----------|---------------|
-| 🔴 **Urgent** | CEO/founder flagged it · team blocked NOW · production issue · deadline today |
-| 🟠 **High** | Multiple people waiting · release impact · overdue commitment · partner deal |
-| 🟡 **Normal** | Peer request · this-week deadline · acknowledged but not delivered |
-| ⚪ **Low** | Soft acknowledgement · no deadline · informational |
-
-**Smart due dates** — based on urgency, not always today:
-
-```
-🔴 Urgent  →  Due today
-🟠 High    →  Due tomorrow
-🟡 Normal  →  Due end of this week
-⚪ Low     →  Due next week
-```
-
----
-
-## Follow-up Confirmation Flow
-
-When you run with `followup`, it never sends blindly. It shows you everything first:
-
-```
-📨 FOLLOW-UPS READY TO SEND
-
-🔴 OVERDUE / ESCALATION NEEDED
-  1. → Jordan · "Submit plugin docs" · 4 days ago · deadline was Wednesday ✗
-     No reply received · 0 prior follow-ups sent
-
-  2. → Sam · "Daily update" · last received 2 days ago (recurring stopped)
-     ⚠ Already followed up once — recommend talking directly
-
-🟡 PENDING / ACKNOWLEDGED NOT DELIVERED
-  3. → Morgan · "Send banner sizes" · said "on it" · no file received yet
-
-Which ones should I send reminders for?
-Reply: "1, 3" or "all" or "none"
-```
-
-You confirm → it sends → it logs what was sent on the task.
-
----
-
-## Sample Output
-
-```
-════════════════════════════════════════════════════
-  make-my-clickup · by Aditya Sharma
-  📅 15 Jan 2025 · ⏱ last 24 hours
-════════════════════════════════════════════════════
-
-📬 MY INBOX — Needs my action
-
-  🔴 URGENT (1)
-  • Submit plugin zip to marketplace — Alex / general
-
-  🟠 HIGH (3)
-  • Decide community platform for launch — Alex / DM
-  • Clarify banner sizes before deadline — Morgan / design-team
-  • Write product release announcement — self-commitment
-
-  🟡 NORMAL (4)
-  • Confirm affiliate account setup — Morgan / DM
-  • Check blog cleanup task status — content-team
-  • Follow up dev team on v6.4 marketing — devs-marketing
-  • Review SEO gap analysis PDF — Jordan / DM
-
-────────────────────────────────────────────────────
-
-⏳ FOLLOW-UP TRACKER — Pending from others
-
-  • Plugin setup docs → Jordan · 1 day · no reply
-  • Pricing page update → Sam · 5 hours · said "will do", no delivery
-
-────────────────────────────────────────────────────
-
-📊 STATS
-  Inbox tasks    : 8 created
-  Follow-up tasks: 2 created
-  Channels scanned: 11 channels · 9 DMs · 6 group DMs
-  Messages reviewed: 284 · 47 in window · 10 actioned
-
-🔗 Task board → https://app.clickup.com/your-workspace/
-
-════════════════════════════════════════════════════
-  Built and Shipped by Aditya Sharma
-════════════════════════════════════════════════════
-```
-
----
-
-## Requirements
-
-| | Requirement | Notes |
-|--|-------------|-------|
-| ✅ | **Claude Code** | [Download here](https://claude.ai/download) |
-| ✅ | **ClickUp account** | Any plan — Free, Unlimited, Business |
-| ✅ | **ClickUp API token** | Generated in ClickUp in 30 seconds — guide below |
-| ✅ | **Node.js** | [nodejs.org](https://nodejs.org) — LTS version |
+| Priority | Triggered when | Due date |
+|----------|---------------|----------|
+| 🔴 **Urgent** | CEO/founder flagged · team blocked NOW · production issue · deadline today | Today |
+| 🟠 **High** | Multiple people waiting · release impact · overdue commitment · partner deal | Tomorrow |
+| 🟡 **Normal** | Peer request · this-week deadline · acknowledged but not delivered | End of this week |
+| ⚪ **Low** | Soft acknowledgement · no deadline · informational | Next week |
 
 ---
 
 ## Install
 
-No terminal. No scripts. Paste this into Claude Code:
+**No terminal. No scripts. Paste this into Claude Code:**
 
 ```
-Install the make-my-clickup skill from https://github.com/adityaarsharma/make-my-clickup
-Clone or download it into ~/.claude/skills/make-my-clickup/
+Install Pickle from https://github.com/adityaarsharma/pickle
+
+Clone the repo into ~/.claude/skills-src/pickle/
+Then:
+  1. Copy the pickle-clickup/ folder into ~/.claude/skills/pickle-clickup/
+  2. Copy the pickle-slack/ folder into ~/.claude/skills/pickle-slack/
+
+Tell me what's next after installation.
 ```
 
-Claude Code downloads and places the skill automatically.
+Claude Code handles the rest. **Restart Claude Code** → `/pickle-clickup` and `/pickle-slack` appear in autocomplete ✅.
 
-**Restart Claude Code** → type `/make-my-clickup` → appears in autocomplete ✅
+You can install one or both — they're independent.
 
 ---
 
-## Connect ClickUp
+## Connect
 
-### Step 1 — Generate your API token (30 seconds)
+### ClickUp
+
+Two options — pick whichever fits:
 
 ```
-ClickUp
-  └── 👤 Your avatar  (bottom-left)
-        └── ⚙️  Settings
-              └── 🔧 Apps
-                    └── 🔑 API Token → [ Generate ]
-                                            │
-                                            ▼
-                               Copy  pk_xxxxxxxxxxxxxxxx
+  Option A                        Option B
+  Official Claude connector       Your own API token
+  (2 clicks, OAuth)               (full isolation)
+       │                                │
+       ▼                                ▼
+  claude.ai →                     app.clickup.com →
+  Settings →                      Avatar → Settings →
+  Connectors →                    Apps →
+  ClickUp → Connect               API Token → Generate
+                                       │
+                                       ▼
+                                  Paste pk_xxx into
+                                  Claude Code setup prompt
 ```
 
-📖 Full visual guide: [docs/api-setup.md](docs/api-setup.md)
+📖 Full guide: [docs/clickup-setup.md](docs/clickup-setup.md)
+
+### Slack
+
+Same pattern:
+
+```
+  Option A                        Option B
+  Official Claude connector       Your own Slack app + user token
+  (2 clicks, OAuth)               (full isolation, xoxp-...)
+       │                                │
+       ▼                                ▼
+  claude.ai →                     api.slack.com/apps →
+  Settings →                      Create App → add scopes →
+  Connectors →                    Install to workspace →
+  Slack → Connect                 Copy User OAuth Token
+```
+
+📖 Full guide: [docs/slack-setup.md](docs/slack-setup.md)
+
+**⚠ Teams sharing one Claude account → use Option B on both.** OAuth connectors are tied to the Claude account, so one shared account = one shared inbox = mixed data. Personal tokens = full isolation per teammate.
 
 ---
 
-### Step 2 — Connect via Claude Code
-
-Paste this into Claude Code:
+## Run
 
 ```
-Run the make-my-clickup setup:
-1. Ask me for my ClickUp API token (starts with pk_)
-2. Add it to ~/.claude.json under mcpServers using @taazkareem/clickup-mcp-server
-3. Verify the connection works by listing my ClickUp workspaces
-```
+/pickle-clickup              ← ClickUp, last 24h
+/pickle-clickup 7d           ← ClickUp, last 7 days
+/pickle-clickup followup     ← confirm + send follow-ups
 
-```
-Claude asks for your pk_ token
-          │
-          ▼
-You paste it
-          │
-          ▼
-Claude writes ~/.claude.json automatically
-          │
-          ▼
-Claude tests the connection
-          │
-          ▼
-✅ Restart Claude Code once → you're live
+/pickle-slack                ← Slack, last 24h
+/pickle-slack 7d             ← Slack, last 7 days
+/pickle-slack followup       ← confirm + send follow-up DMs
 ```
 
 ---
 
-### Step 3 — Verify
+## Sample Output
 
-```
-What spaces do I have in ClickUp?
-```
+### ClickUp
+[See examples/clickup-output.md](examples/clickup-output.md)
 
-If Claude lists your spaces → connected ✅
+### Slack
+[See examples/slack-output.md](examples/slack-output.md)
 
 ---
 
-### Step 4 — Run
+## Security & Privacy
 
-```
-/make-my-clickup
-```
+**Fully local. No Pickle server. No telemetry. Tokens stay on your disk.**
+
+- Pickle runs inside your own Claude Code
+- Slack data and ClickUp data are **never mixed**
+- `state.json` stores only IDs and timestamps — **never message text**
+- Follow-up DMs require explicit confirmation every time
+- Pickle never posts in public channels on your behalf
+
+📖 Full security doc: [docs/security.md](docs/security.md)
 
 ---
 
 ## For Teams
 
-Each teammate runs the same setup with their **own** ClickUp API token on their own machine:
+Each teammate installs Pickle on their own machine with their **own** tokens:
 
 ```
-Teammate A          Teammate B          Teammate C
-pk_aaaaaa           pk_bbbbbb           pk_cccccc
-    │                   │                   │
-    ▼                   ▼                   ▼
-Their inbox         Their inbox         Their inbox
-Their tasks         Their tasks         Their tasks
-Their board         Their board         Their board
+Teammate A                  Teammate B                  Teammate C
+pk_aaaa / xoxp-aaa          pk_bbbb / xoxp-bbb          pk_cccc / xoxp-ccc
+    │                           │                           │
+    ▼                           ▼                           ▼
+Their inboxes               Their inboxes               Their inboxes
+Their ClickUp board         Their ClickUp board         Their ClickUp board
+Their Slack List            Their Slack List            Their Slack List
 
 No shared accounts. No overlap. Fully isolated.
 ```
@@ -310,15 +276,26 @@ No shared accounts. No overlap. Fully isolated.
 
 ## Customisation
 
-**Task board** — auto-detects lists named `My Task Board`, `[Name]'s Task Board`, `Task Board`, `Daily Inbox`. Always created in your **personal private space**.
+All logic is plain English. Edit `SKILL.md` directly — no code.
 
-**Filters** — edit `SKILL.md` directly. All logic is plain English — no code to write.
+- Skip/include rules → STEP 5A
+- Priority rules → STEP 6
+- Task format → STEP 8
+- Default time window → STEP 0
+- Custom list/board name → STEP 2
 
-**Priority rules** — adjust what counts as Urgent, High, Normal in Step 6.
+📖 Full guide: [docs/customisation.md](docs/customisation.md)
 
-**Team use** — each person installs on their own machine. Runs as their account. No interference.
+---
 
-📖 Full guide: [docs/customization.md](docs/customization.md)
+## Requirements
+
+| | Requirement | Notes |
+|--|-------------|-------|
+| ✅ | **Claude Code** | [Download here](https://claude.ai/download) |
+| ✅ | **ClickUp account** (for `/pickle-clickup`) | Any plan |
+| ✅ | **Slack workspace** (for `/pickle-slack`) | You must be a member of the channels you want scanned |
+| ✅ | **Node.js** | [nodejs.org](https://nodejs.org) — LTS |
 
 ---
 
@@ -326,12 +303,24 @@ No shared accounts. No overlap. Fully isolated.
 
 | Problem | Fix |
 |---------|-----|
-| Skill not in autocomplete | Restart Claude Code · check `~/.claude/skills/make-my-clickup/SKILL.md` exists |
-| ClickUp not connecting | Make sure you copied the full `pk_` token · restart Claude Code |
-| `npx: command not found` | Install Node.js from [nodejs.org](https://nodejs.org) |
-| No action items found | Try a wider window: `/make-my-clickup 7d` |
-| Wrong tasks being created | Edit skip rules in SKILL.md Step 5A |
-| Follow-ups not detecting | ClickUp MCP needs full read access to channels and DMs |
+| Skills not in autocomplete | Restart Claude Code · confirm `~/.claude/skills/pickle-clickup/SKILL.md` + `~/.claude/skills/pickle-slack/SKILL.md` exist |
+| ClickUp not connecting | Check `pk_` token is full · see [docs/clickup-setup.md](docs/clickup-setup.md) |
+| Slack not connecting | Verify all required scopes added · re-install the Slack app · see [docs/slack-setup.md](docs/slack-setup.md) |
+| `missing_scope` on Slack | Add the scope at api.slack.com/apps → re-install |
+| No items found | Try a wider window: `/pickle-clickup 7d` |
+| Wrong items surfacing | Edit skip/include rules in `SKILL.md` Step 5A |
+| Pickle skipping too much | Delete `~/.claude/skills/pickle-*/state.json` to reset memory |
+| Can't see DMs (Slack) | Confirm `im:history` scope added |
+
+---
+
+## Roadmap
+
+- ✅ v1.x — make-my-clickup (ClickUp only)
+- ✅ v2.0 — Pickle: ClickUp + Slack, dual-path auth, context memory, escalation guard
+- 🔜 v2.1 — Meeting prep mode (`/pickle-clickup prep jordan`)
+- 🔜 v2.2 — Weekly review format
+- 🔜 v2.3 — Scheduled runs via Claude Code Routines (template commands shipped)
 
 ---
 
@@ -339,15 +328,15 @@ No shared accounts. No overlap. Fully isolated.
 
 PRs welcome. Open an issue for bugs or feature requests.
 
-Built for the POSIMYTH team. Open-sourced for everyone.
+**MIT licensed.** Pickle is free. Will stay free.
 
 ---
 
 <div align="center">
 
 **Built and Shipped by [Aditya Sharma](https://github.com/adityaarsharma)**
-POSIMYTH Innovation · [x.com/adityaarsharma](https://x.com/adityaarsharma)
+[x.com/adityaarsharma](https://x.com/adityaarsharma)
 
-MIT License — free to use, modify, and share
+*In a pickle? Pickle sorts it.* 🥒
 
 </div>
