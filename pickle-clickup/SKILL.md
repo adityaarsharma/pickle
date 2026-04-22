@@ -143,11 +143,16 @@ Print: `👤 Running as: $MY_NAME (ID: $MY_USER_ID) in workspace $WORKSPACE_ID`
 
 1. Call `clickup_get_workspace_hierarchy` on the workspace.
 2. From the hierarchy, identify **personal spaces** — spaces where the only member is `MY_USER_ID` (or space name matches "Private", "Personal", or `MY_NAME`).
+**Build `BOARD_NAME`** from prefs:
+- If `clickup_board_name` is set in prefs.json → use it
+- Otherwise → `"[USER_NAME_PREF]'s Task Board — Made from Pickle"` (e.g. `"Aditya's Task Board — Made from Pickle"`)
+- If no user_name → `"My Task Board — Made from Pickle"`
+
 3. Search personal spaces first for a list matching any of:
-   - `"My Task Board"`, `"[MY_NAME]'s Task Board"`, `"Task Board"`, `"Daily Inbox"`, `"[MY_NAME] Task Board"`, `"Pickle"`
+   - `BOARD_NAME` (exact), `"My Task Board"`, `"[MY_NAME]'s Task Board"`, `"Task Board"`, `"Daily Inbox"`, `"[MY_NAME] Task Board"`, `"Pickle"`
 4. If found → use that list, store as `TASK_BOARD_ID`.
 5. If NOT found in personal spaces → also check shared/team spaces (user may have created the list there intentionally).
-6. If still NOT found anywhere → create a new list called `My Task Board`:
+6. If still NOT found anywhere → create a new list called `BOARD_NAME`:
    - **Always create inside a personal/private space** — pick the personal space identified in step 2.
    - If no personal space exists, create a new space called `"Personal"` first (private, members: only `MY_USER_ID`), then create the list inside it.
    - Store the new list ID as `TASK_BOARD_ID`.
@@ -721,7 +726,7 @@ description:
 After ALL ClickUp tasks are created, set **one immediate Slack reminder** via `slack_reminder_add` (from `pickle-slack-mcp`). Reminders fire as real Slack push notifications — no DM needed, no channel post.
 
 ```
-text:    "🥒 Pickle Task Board — Made from Pickle is Ready!\n[N] ClickUp tasks added · Open: https://app.clickup.com/[WORKSPACE_ID]/board/[TASK_BOARD_ID]"
+text:    "🥒 [BOARD_NAME] is Ready!\n[N] tasks added · Open: https://app.clickup.com/[WORKSPACE_ID]/board/[TASK_BOARD_ID]"
 time:    NOW_UNIX + 30   (current Unix timestamp + 30 seconds)
 user_id: MY_SLACK_USER_ID
 ```

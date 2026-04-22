@@ -72,23 +72,33 @@ Print:
 
 ---
 
-## STEP 0.5 — LOAD USER PROFILE (personalise scoring)
+## STEP 0.5 — LOAD USER PROFILE (personalise scoring + list name)
 
 Read user preferences. Check these paths in order (first match wins):
 1. `~/.claude/pickle/prefs.json` (canonical path after setup completes)
 2. `~/.claude/skills/pickle-setup/prefs.json` (fallback if setup hasn't self-removed yet)
 
 Extract:
-- `user_role` → `USER_ROLE` (e.g. "Founder / CEO", "Developer / Engineer")
+- `user_name`  → `USER_NAME` (e.g. "Aditya")
+- `user_role`  → `USER_ROLE` (e.g. "Founder / CEO", "Developer / Engineer")
 - `role_context` → `ROLE_CONTEXT` (free-text one-liner)
+- `slack_list_name` → `LIST_NAME` (override if set in prefs)
 
-If missing → proceed with generic scoring. **Never block on missing prefs.**
+**Build `LIST_NAME`** (the Slack List display name):
+- If `slack_list_name` is set in prefs → use it as-is
+- Otherwise → construct: `"[USER_NAME]'s Task Board — Made from Pickle"`
+- If no `user_name` → fallback: `"Pickle Task Board"`
+
+Example: user_name = "Aditya" → `LIST_NAME = "Aditya's Task Board — Made from Pickle"`
+
+If missing → proceed with generic scoring and fallback name. **Never block on missing prefs.**
 
 Parse `ROLE_CONTEXT` into `ROLE_KEYWORDS[]` (action verbs + domain nouns). These boost priority in Step 6. Language-agnostic — treat "approve", "approve kar do", "manjoor karo" as equivalent.
 
 Print:
 ```
 🎯 Personalised scoring enabled — Role: $USER_ROLE · Focus: [top 8 keywords]
+📋 List name: [LIST_NAME]
 ```
 
 If no prefs → `🎯 Generic scoring (run /pickle-setup to personalise)`.
@@ -116,31 +126,33 @@ Print: `👤 Running as: $MY_NAME ($MY_USER_ID) in workspace $WORKSPACE_ID`
 
 ### Step 2A — Read cache from state.json FIRST
 
-Read `~/.claude/skills/pickle-slack/state.json`. Look for `_list_registry["Pickle Inbox"]`:
+Read `~/.claude/skills/pickle-slack/state.json`. Look for `_list_registry[LIST_NAME]` (where `LIST_NAME` was set in Step 0.5):
 
 ```json
 "_list_registry": {
-  "Pickle Inbox": {
+  "Aditya's Task Board — Made from Pickle": {
     "list_id": "F0AU68YL4LX",
     "col_ids": { "ColTL": "Col0AUKLBKCH4", ... }
   }
 }
 ```
 
-- **If found**: store `LIST_ID` and `COL_IDS` from cache. Call `slack_list_find_or_create` with `cached_list_id` + `cached_col_ids` — it returns immediately, zero API calls. ✅
-- **If not found** (first ever run): call `slack_list_find_or_create` with only `name: "Pickle Inbox"` — it creates the list and returns `list_id` + `col_ids`. Save both to `_list_registry` in state.json before proceeding. ✅
+Also check the legacy key `"Pickle Inbox"` — if found under that key, treat it as a match (migration: old name → new name).
+
+- **If found**: store `LIST_ID` and `COL_IDS` from cache. Call `slack_list_find_or_create` with `cached_list_id` + `cached_col_ids` — returns immediately, zero API calls. ✅
+- **If not found** (first ever run): call `slack_list_find_or_create` with `name: LIST_NAME` — creates the list, returns `list_id` + `col_ids`. Save both to `_list_registry[LIST_NAME]` in state.json before proceeding. ✅
 
 ### Step 2B — List columns (for reference)
 
-The Pickle Inbox list has 9 columns:
+9 columns on the list:
 - `Title` (text, primary), `Type` (Inbox · Follow-up), `Priority` (🔴🟠🟡⚪)
 - `From/To`, `Channel`, `Source Link` (1-click link), `Due` (date), `Status` (Open · Waiting · Done), `Quote` (context block)
 
-If the tool returns `{ list_id: null, fallback: "self_dm" }` — Slack Lists API not available on this plan. Report error, do not fall back to DM.
+If the tool returns `{ list_id: null }` — Slack Lists API not available. Report error, do not fall back to DM.
 
 **⚠️ IMPORTANT: The `pickle-slack-mcp` MCP server MUST be connected (`mcpServers["pickle-slack-mcp"]` in `~/.claude.json`). If tools are missing, tell the user to run `/pickle-setup`.**
 
-Print: `📋 Pickle Inbox List: [LIST_ID] — [cached ✓ / created fresh ✓]`
+Print: `📋 [LIST_NAME]: [LIST_ID] — [cached ✓ / created fresh ✓]`
 
 ---
 
@@ -640,7 +652,7 @@ Plus `slack_reminder_add` for the due date (same pattern as Mode A).
 After ALL items are created, set **one immediate Slack reminder** via `slack_reminder_add`. Reminders fire as real Slack push notifications (appear in Slackbot) — no DM needed.
 
 ```
-text:    "🥒 Pickle Inbox — Made from Pickle is Ready!\n[N] items added · Open: https://app.slack.com/lists/[WORKSPACE_ID]/[LIST_ID]"
+text:    "🥒 [LIST_NAME] is Ready!\n[N] items · Open: https://app.slack.com/lists/[WORKSPACE_ID]/[LIST_ID]"
 time:    NOW_UNIX + 30   (current Unix timestamp + 30 seconds — fires almost instantly)
 user_id: MY_USER_ID
 ```
