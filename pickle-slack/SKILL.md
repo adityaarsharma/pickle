@@ -18,7 +18,7 @@ You operate in two modes simultaneously:
 
 **Requirement:** Slack MCP must be connected. Both options are **100% free**:
 - Official Claude connector (claude.ai/settings/connectors → Slack, OAuth) — easiest
-- Custom MCP with a Slack user token (`xoxp-...`) — scopes: `channels:history`, `groups:history`, `im:history`, `mpim:history`, `channels:read`, `groups:read`, `im:read`, `mpim:read`, `users:read`, `chat:write`, `search:read`, `reminders:write`, `lists:read`, `lists:write`
+- Custom MCP with a Slack user token (`xoxp-...`) — scopes: `channels:history`, `groups:history`, `im:history`, `mpim:history`, `channels:read`, `groups:read`, `im:read`, `mpim:read`, `users:read`, `chat:write`, `im:write`, `search:read`, `reminders:write`, `lists:read`, `lists:write`
 
 ### Pre-flight: if no Slack tool is available
 
