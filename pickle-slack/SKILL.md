@@ -112,29 +112,35 @@ Print: `👤 Running as: $MY_NAME ($MY_USER_ID) in workspace $WORKSPACE_ID`
 
 ## STEP 2 — FIND OR CREATE PICKLE SLACK LIST (DESTINATION)
 
-**Slack items stay inside Slack.** Destination priority:
+**⚠️ CRITICAL RULE: `slackLists.list` does NOT exist as a Slack API method. NEVER call `slack_list_find_or_create` without first reading the cached list_id from `state.json`. Calling it without a cache WILL create a duplicate list every run.**
 
-1. **Slack Lists (preferred)** — Slack's native task-style database (2024+).
-   - Use the `slack_list_find_or_create` tool (from `pickle-slack-mcp`) with `name: "Pickle Inbox"`.
-   - This tool finds an existing list OR creates a new private List with the correct columns:
-     - `Title` (text), `Type` (select: Inbox · Follow-up), `Priority` (select: 🔴 Urgent · 🟠 High · 🟡 Normal · ⚪ Low)
-     - `From/To` (text), `Channel` (text), `Source Link` (link — 1-click jump to original message)
-     - `Due` (date), `Status` (select: Open · Waiting · Done), `Quote` (text)
-   - If the tool returns `{ list_id: null, fallback: "self_dm" }`, the Slack Lists API is not available on this plan — proceed to fallback 3.
-   - Store `LIST_ID`.
+### Step 2A — Read cache from state.json FIRST
 
-2. **Canvas fallback** — if `slack_list_find_or_create` is not available as a tool, use a private Canvas:
-   - Look for a Canvas named `"Pickle Inbox"` in the user's DM with themselves, or create one.
-   - Append entries as structured bullet blocks (one per item).
-   - Store `CANVAS_ID`.
+Read `~/.claude/skills/pickle-slack/state.json`. Look for `_list_registry["Pickle Inbox"]`:
 
-3. **Plain DM-to-self fallback** — ONLY if Lists AND Canvas are both unavailable.
-   - Use `slack_post_self_dm` to send a single summary DM to the user's own Slack DM channel.
-   - This is the last resort. Always try Lists first.
+```json
+"_list_registry": {
+  "Pickle Inbox": {
+    "list_id": "F0AU68YL4LX",
+    "col_ids": { "ColTL": "Col0AUKLBKCH4", ... }
+  }
+}
+```
 
-**⚠️ IMPORTANT: The `pickle-slack-mcp` MCP server MUST be connected (configured at `mcpServers["pickle-slack-mcp"]` in `~/.claude.json`). If `slack_list_find_or_create` is not available as a tool, tell the user to run `/pickle-setup` to configure the MCP.**
+- **If found**: store `LIST_ID` and `COL_IDS` from cache. Call `slack_list_find_or_create` with `cached_list_id` + `cached_col_ids` — it returns immediately, zero API calls. ✅
+- **If not found** (first ever run): call `slack_list_find_or_create` with only `name: "Pickle Inbox"` — it creates the list and returns `list_id` + `col_ids`. Save both to `_list_registry` in state.json before proceeding. ✅
 
-Print: `📋 Destination: [Slack List / Canvas / DM-to-self] — [ID] ✓`
+### Step 2B — List columns (for reference)
+
+The Pickle Inbox list has 9 columns:
+- `Title` (text, primary), `Type` (Inbox · Follow-up), `Priority` (🔴🟠🟡⚪)
+- `From/To`, `Channel`, `Source Link` (1-click link), `Due` (date), `Status` (Open · Waiting · Done), `Quote` (context block)
+
+If the tool returns `{ list_id: null, fallback: "self_dm" }` — Slack Lists API not available on this plan. Report error, do not fall back to DM.
+
+**⚠️ IMPORTANT: The `pickle-slack-mcp` MCP server MUST be connected (`mcpServers["pickle-slack-mcp"]` in `~/.claude.json`). If tools are missing, tell the user to run `/pickle-setup`.**
+
+Print: `📋 Pickle Inbox List: [LIST_ID] — [cached ✓ / created fresh ✓]`
 
 ---
 

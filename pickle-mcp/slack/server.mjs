@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @pickle/slack-mcp  v1.6.0
+ * @pickle/slack-mcp  v1.7.0
  *
  * Free, open-source Slack MCP server — part of the Pickle project.
  * Pure Node.js ESM · no build step · no TypeScript compilation.
@@ -114,11 +114,13 @@ const TOOLS = [
   },
   {
     name: "slack_list_find_or_create",
-    description: "Find an existing Slack List by name, or create it if it doesn't exist. Returns list_id.",
+    description: "Find or create the Pickle Inbox Slack List. IMPORTANT: slackLists.list API does not exist — you MUST read list_id and col_ids from state.json _list_registry first and pass them as cached_list_id / cached_col_ids. If cached values are present, this tool skips all API calls and returns immediately. Only omit cached values on the very first run when no registry entry exists yet.",
     inputSchema: {
       type: "object",
       properties: {
-        name: { type: "string", description: "List name to find or create" },
+        name:            { type: "string", description: "List name, e.g. 'Pickle Inbox'" },
+        cached_list_id:  { type: "string", description: "list_id from state.json _list_registry — pass this to skip creation and avoid duplicates" },
+        cached_col_ids:  { type: "object", description: "col_ids from state.json _list_registry — pass this alongside cached_list_id" },
       },
       required: ["name"],
     },
@@ -138,9 +140,10 @@ const TOOLS = [
         source_link: { type: "string", description: "Direct permalink to the original Slack message — 1-click jump back" },
         due:         { type: "string", description: "Due date string, e.g. 'Today', 'Tomorrow', '2026-04-23'" },
         status:      { type: "string", enum: ["Open", "Waiting", "Done"], default: "Open" },
+        col_ids:     { type: "object", description: "Map of ColXX key → Slack-generated column ID. Get this from slack_list_find_or_create response, or from state.json _list_registry.col_ids. REQUIRED — without this, item creation will fail." },
         quote:       { type: "string", description: "Full context block (ClickUp-style description): Who sent it → what they said (verbatim if possible) → what action is needed from Aditya → any background/history. 2000 char max. Be specific — no vague summaries." },
       },
-      required: ["list_id", "title", "item_type", "priority", "source_link"],
+      required: ["list_id", "col_ids", "title", "item_type", "priority", "source_link"],
     },
   },
   {
@@ -273,56 +276,27 @@ async function handleTool(name, args) {
     }
 
     case "slack_list_find_or_create": {
-      // ALWAYS reuse the same "Pickle Inbox" list — never create a second one.
-      // Strategy:
-      //   1. Try slackLists.list to find existing list by name
-      //   2. If found, get col_ids from its schema (via slackLists.info or inline schema)
-      //   3. If slackLists.list fails or returns nothing → create fresh (one time only)
-      //   4. Caller should cache list_id + col_ids in state.json _list_registry to
-      //      avoid this lookup on every run.
+      // slackLists.list does NOT exist as an API endpoint — do not call it.
+      // The correct pattern:
+      //   1. CALLER reads state.json _list_registry and passes cached_list_id + cached_col_ids
+      //   2. If cached values present → return immediately, zero API calls
+      //   3. If no cache (first ever run) → create fresh, return list_id + col_ids for caller to cache
 
-      let foundId   = null;
-      let foundCols = null;
-
-      try {
-        const resp = await slackCall("slackLists.list", {});
-        const arr  = resp.lists ?? resp.results ?? resp.items ?? [];
-        const hit  = arr.find(l => (l.name || l.title) === args.name);
-        if (hit) {
-          foundId = hit.id || hit.list_id;
-          // Try to extract col_ids from the inline schema if present
-          const schema = hit.schema ?? hit.list_metadata?.schema ?? [];
-          if (schema.length > 0) {
-            foundCols = {};
-            for (const col of schema) foundCols[col.key] = col.id;
-          }
-        }
-      } catch (e) {
-        process.stderr.write(`[pickle-slack-mcp] slackLists.list failed: ${e.message}\n`);
+      // Fast path: caller passed cached values from state.json
+      if (args.cached_list_id) {
+        return {
+          list_id:  args.cached_list_id,
+          col_ids:  args.cached_col_ids || null,
+          name:     args.name,
+          existed:  true,
+          source:   "state.json _list_registry",
+        };
       }
 
-      // If found but col_ids not in the list response, try slackLists.info
-      if (foundId && !foundCols) {
-        try {
-          const info   = await slackCall("slackLists.info", { list_id: foundId });
-          const schema = info.list?.schema ?? info.list_metadata?.schema ?? info.schema ?? [];
-          if (schema.length > 0) {
-            foundCols = {};
-            for (const col of schema) foundCols[col.key] = col.id;
-          }
-        } catch (e) {
-          process.stderr.write(`[pickle-slack-mcp] slackLists.info failed: ${e.message}\n`);
-          // col_ids will be null — caller must read from state.json _list_registry
-        }
-      }
-
-      if (foundId) {
-        return { list_id: foundId, name: args.name, existed: true, col_ids: foundCols };
-      }
-
-      // No existing list found — create one (should only happen on first ever run)
+      // Slow path: first run, no cache — create the list
       try {
         const created = await handleTool("slack_list_create", { name: args.name });
+        // Caller MUST save created.list_id + created.col_ids to state.json _list_registry
         return { ...created, existed: false };
       } catch (e) {
         return { list_id: null, error: e.message, fallback: "self_dm" };
@@ -412,7 +386,7 @@ async function handleTool(name, args) {
 // ---------------------------------------------------------------------------
 
 const server = new Server(
-  { name: "pickle-slack-mcp", version: "1.6.0" },
+  { name: "pickle-slack-mcp", version: "1.7.0" },
   { capabilities: { tools: {} } }
 );
 
