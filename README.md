@@ -75,19 +75,61 @@ ClickUp data and Slack data stay completely separate — never mixed.
 
 ## Update
 
-When a new version drops, run:
-
-```bash
-bash ~/.claude/pickle-mcp/update.sh
+```
+/pickle-update
 ```
 
-Or the universal one-liner (works for any install):
+That's it. No terminal, no copy-paste. Auto-detects what you have, pulls the latest, tells you to quit + reopen Claude Code. Your tokens, role, and task history stay untouched.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/adityaarsharma/pickle/main/update.sh | bash
-```
+---
 
-Auto-detects what you have, only updates those pieces, keeps your preferences untouched.
+## How Pickle connects to ClickUp / Slack
+
+Two free paths per ecosystem. `/pickle-setup` walks you through either — you don't need to pick upfront.
+
+### 🔵 ClickUp
+
+| Path | Best for | Setup |
+|------|---------|-------|
+| **Official Claude Connector** (recommended) | Personal Claude accounts | claude.ai → Settings → Connectors → ClickUp → Connect. 2 clicks, no terminal. |
+| **Pickle's own MCP** (personal token) | Shared Claude accounts — each person keeps their own ClickUp session | Paste your ClickUp API token. Pickle's free, MIT-licensed MCP server runs locally. |
+
+**Getting your ClickUp API token** (only for the token path):
+1. Open [app.clickup.com/settings/apps](https://app.clickup.com/settings/apps)
+2. Under "API Token" → click **Generate** (or Regenerate)
+3. Copy the token starting with `pk_…`
+4. Paste it into `/pickle-setup` when prompted. The token stays in `~/.claude.json` on your machine — never uploaded.
+
+To revoke: same page → Regenerate → old token dies instantly.
+
+### 💬 Slack
+
+| Path | Best for | Setup |
+|------|---------|-------|
+| **Official Claude Connector** (recommended) | Personal Claude accounts | claude.ai → Settings → Connectors → Slack → Connect. 2 clicks. |
+| **Your own Slack App + User OAuth token** | Shared Claude accounts, or workspaces where admin-approved connectors are blocked | Create a free Slack app, install to your workspace, paste the `xoxp-` token. |
+
+**Getting your Slack User OAuth token** (only for the token path — takes ~2 minutes):
+1. Open [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → From scratch
+2. Name it "Pickle", pick your workspace
+3. Left sidebar → **OAuth & Permissions** → scroll to **User Token Scopes** and add:
+   ```
+   channels:history   groups:history   im:history      mpim:history
+   channels:read      groups:read      im:read         mpim:read
+   users:read         chat:write       search:read     reminders:write
+   lists:read         lists:write
+   ```
+4. Scroll up → **Install to Workspace** → approve
+5. Copy the **User OAuth Token** starting with `xoxp-…`
+6. Paste it into `/pickle-setup`. Token stays in `~/.claude.json` — never uploaded.
+
+To revoke: api.slack.com/apps → your Pickle app → Install App → Revoke. 5 seconds.
+
+**Which Slack MCP does Pickle use?** The token path wires up [`korotovsky/slack-mcp-server`](https://github.com/korotovsky/slack-mcp-server) — a free, open-source MCP that already covers Slack's full scan surface (channels, DMs, group DMs, threads, search, reminders, lists). No need to reinvent it.
+
+### 🔐 Both APIs are free
+
+ClickUp API: free on every plan, no per-call billing. Slack API: free on every workspace plan (including free tier). Pickle will never recommend a paid upgrade to unlock features.
 
 ---
 
@@ -121,10 +163,16 @@ No corner left unscanned.
 ## Uninstall
 
 ```bash
-rm -rf ~/.claude/skills/pickle-clickup ~/.claude/skills/pickle-slack ~/.claude/skills/pickle-setup ~/.claude/pickle-mcp
+rm -rf \
+  ~/.claude/skills/pickle-clickup \
+  ~/.claude/skills/pickle-slack \
+  ~/.claude/skills/pickle-setup \
+  ~/.claude/skills/pickle-update \
+  ~/.claude/pickle-mcp \
+  ~/.claude/pickle
 ```
 
-Then remove the `mcpServers.clickup` block from `~/.claude.json` if you added one. That's the entire uninstall — no services, no system files.
+Then remove the `mcpServers.clickup` and/or `mcpServers.slack` blocks from `~/.claude.json` if they exist. That's the entire uninstall — no services, no system files.
 
 ---
 
