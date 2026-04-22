@@ -380,23 +380,6 @@ Confirm: `✓ Pickle ClickUp MCP configured for workspace "[NAME]".`
 
 ---
 
-### If `CLICKUP_AUTH = connector` — Official Claude connector
-
-No local config to write. Just tell the user:
-
-```
-────────────────────────────────────────────────────
-  🔵 ClickUp via Claude Connector
-────────────────────────────────────────────────────
-
-  1. Open claude.ai → Settings → Connectors
-  2. Find "ClickUp" → Connect → approve
-
-Tell me when done (reply "ok").
-```
-
-Wait for confirmation. Nothing gets written to `~/.claude.json`.
-
 ### If `SLACK_AUTH = connector`:
 
 Print:
@@ -686,13 +669,19 @@ Same for MCP servers in `~/.claude.json`:
 
 **Do not announce this cleanup.** It's just making sure the user's `/` menu is tidy. Print nothing.
 
-### Self-removal of pickle-setup
+### Preserve prefs.json, THEN self-remove pickle-setup
 
-Once setup is done, `/pickle-setup` has no job left. It clutters the command palette with an option the user won't need day-to-day. Remove it silently:
+Once setup is done, `/pickle-setup` has no job left. But its `prefs.json` holds the user's name, role, role-context, task-board name — which `pickle-clickup` and `pickle-slack` both need at runtime. **Copy prefs out before deleting the skill folder.**
 
 ```bash
+mkdir -p ~/.claude/pickle
+if [ -f ~/.claude/skills/pickle-setup/prefs.json ]; then
+  cp ~/.claude/skills/pickle-setup/prefs.json ~/.claude/pickle/prefs.json
+fi
 rm -rf ~/.claude/skills/pickle-setup 2>/dev/null
 ```
+
+`~/.claude/pickle/prefs.json` is the canonical location after setup completes. Both scan skills read from there first and fall back to `~/.claude/skills/pickle-setup/prefs.json` only if the canonical path is missing (for users mid-upgrade).
 
 **If the user ever wants to re-run setup** (add the other ecosystem, re-auth, change prefs) — they paste the same one-liner from the README:
 
@@ -738,8 +727,6 @@ Print a polished summary:
    To re-run setup later, paste in Claude Code:
    "Install Pickle from github.com/adityaarsharma/pickle and run /pickle-setup")
 
-**Only print the blocks that apply.** If the user picked ClickUp only, don't show `/pickle-slack` commands at all — they won't work and will confuse the user.
-
 ────────────────────────────────────────────────────
   A few things to remember
 ────────────────────────────────────────────────────
@@ -749,16 +736,16 @@ Print a polished summary:
   🔒 Pickle always asks before sending a follow-up.
   🔒 Your tokens stay in ~/.claude.json on this machine only.
 
-  Change anything any time by editing:
-    [only mention the file(s) relevant to their ECO_CHOICE]
-    ~/.claude/skills/pickle-clickup/SKILL.md
-    ~/.claude/skills/pickle-slack/SKILL.md
+  To update Pickle later:
+    bash ~/.claude/pickle-mcp/update.sh
 
 ────────────────────────────────────────────────────
   🥒 Built and Shipped by Aditya Sharma
   github.com/adityaarsharma/pickle
 ════════════════════════════════════════════════════
 ```
+
+**Only print command blocks that match the user's ECO_CHOICE.** If they picked ClickUp only, don't show `/pickle-slack` commands — they won't work and will confuse the user.
 
 ---
 

@@ -41,7 +41,7 @@ Do not run me again until ClickUp is live.
 
 **If a different MCP connector is loaded that looks similar but isn't ClickUp** (e.g. Asana has `get_portfolios`, `get_projects`, `get_tasks` — Asana is NOT ClickUp), say so explicitly and don't confuse the two.
 
-**Privacy:** Pickle runs entirely on your machine. No data leaves your Claude Code session except standard Claude API calls. See `docs/security.md`.
+**Privacy:** Pickle runs entirely on your machine. No data leaves your Claude Code session except standard Claude API calls. Details: https://github.com/adityaarsharma/pickle#what-pickle-will-never-do
 
 ---
 
@@ -83,7 +83,11 @@ Print:
 
 ## STEP 0.5 — LOAD USER PROFILE (personalise scoring)
 
-Read `~/.claude/skills/pickle-setup/prefs.json` if it exists. Extract:
+Read user preferences. Check these paths in order (first match wins):
+1. `~/.claude/pickle/prefs.json` (canonical path after setup completes)
+2. `~/.claude/skills/pickle-setup/prefs.json` (fallback if setup hasn't self-removed yet)
+
+Extract:
 
 - `user_name` → store as `USER_NAME_PREF` (display name, fallback to ClickUp name later)
 - `user_role` → store as `USER_ROLE` (e.g. "Founder / CEO", "Developer / Engineer")
@@ -257,7 +261,7 @@ Before scanning, compute and print an estimate so the user sees the cost:
 After collecting all messages, DO NOT paste the raw payloads into the main conversation. Instead:
 
 1. Write collected messages to `~/.claude/skills/pickle-clickup/.scratch/scan-<timestamp>.json`
-2. Spawn an `Explore` subagent with a prompt like:
+2. Launch a general-purpose subagent via the `Task` tool with a prompt like:
    > "Read `<scratch path>`. Apply the Step 5A inclusion filter (see pickle-clickup/SKILL.md) and the multilingual intent rules. Return only: (a) array of qualifying items with source_type, parent_name, user_id, content_excerpt ≤200 chars, reason_included. (b) empty array if none. Return as JSON. Under 2000 tokens."
 3. Main thread reads only the compact JSON back — never sees the raw messages
 

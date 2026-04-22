@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @pickle/clickup-mcp  v2.2.0
+ * @pickle/clickup-mcp  v2.3.0
  *
  * Free, open-source ClickUp MCP server — part of the Pickle project.
  * Pure Node.js ESM · no build step · no TypeScript compilation.
@@ -131,7 +131,10 @@ async function clickupFetch(method, path, { query, body } = {}) {
       await sleep(Math.min(wait, 60_000));
       continue;
     }
-    if (res.status >= 500 && attempt < MAX_RETRIES) {
+    // 5xx retry ONLY for idempotent methods — retrying POST/PUT/DELETE after
+    // a 5xx can duplicate writes (create duplicate task, double-send message).
+    const isIdempotent = method === "GET" || method === "HEAD";
+    if (res.status >= 500 && isIdempotent && attempt < MAX_RETRIES) {
       await sleep(backoffMs(attempt)); continue;
     }
 
@@ -209,21 +212,31 @@ const tools = [
       const teams  = await listTeams();
       const team   = teams.find((t) => String(t.id) === String(teamId)) || { id: teamId, name: null };
       const spaces = await getSpaces(teamId);
-      const hierarchy = [];
-      for (const space of spaces) {
-        const folders         = await getFoldersForSpace(space.id);
-        const folderlessLists = await getFolderlessLists(space.id);
-        const folderEntries   = [];
-        for (const folder of folders) {
+
+      // Parallelize: fetch folders + folderless lists per space concurrently
+      const perSpace = await Promise.all(spaces.map(async (space) => {
+        const [folders, folderlessLists] = await Promise.all([
+          getFoldersForSpace(space.id),
+          getFolderlessLists(space.id),
+        ]);
+        // For folders missing their nested lists, fetch in parallel
+        const folderLists = await Promise.all(folders.map(async (folder) => {
           const lists = Array.isArray(folder.lists) && folder.lists.length
             ? folder.lists : await getListsInFolder(folder.id);
-          folderEntries.push({ id: folder.id, name: folder.name, hidden: folder.hidden ?? false,
-            lists: lists.map((l) => ({ id: l.id, name: l.name, task_count: l.task_count ?? null })) });
-        }
-        hierarchy.push({ id: space.id, name: space.name, private: space.private ?? false,
-          folders: folderEntries,
-          folderless_lists: folderlessLists.map((l) => ({ id: l.id, name: l.name, task_count: l.task_count ?? null })) });
-      }
+          return { folder, lists };
+        }));
+        return { space, folderLists, folderlessLists };
+      }));
+
+      const hierarchy = perSpace.map(({ space, folderLists, folderlessLists }) => ({
+        id: space.id, name: space.name, private: space.private ?? false,
+        folders: folderLists.map(({ folder, lists }) => ({
+          id: folder.id, name: folder.name, hidden: folder.hidden ?? false,
+          lists: lists.map((l) => ({ id: l.id, name: l.name, task_count: l.task_count ?? null })),
+        })),
+        folderless_lists: folderlessLists.map((l) => ({ id: l.id, name: l.name, task_count: l.task_count ?? null })),
+      }));
+
       return { team: { id: String(team.id), name: team.name ?? null }, spaces: hierarchy };
     },
   },
@@ -410,7 +423,7 @@ const tools = [
       archived: z.boolean().optional(),
       include_markdown_description: z.boolean().optional(),
       page: z.number().int().min(0).optional(),
-      order_by: z.string().optional().describe("id, created, updated, due_date"),
+      order_by: z.enum(["id", "created", "updated", "due_date"]).optional(),
       reverse: z.boolean().optional(),
       subtasks: z.boolean().optional(),
       statuses: z.array(z.string()).optional(),
@@ -463,7 +476,7 @@ const tools = [
 
   {
     name: "clickup_set_task_custom_field",
-    description: "Set (or update) a custom field value on a task.",
+    description: "Set (or update) a custom field value on a task. Call clickup_get_list_custom_fields first to inspect the field's `type` and `type_config` — value shape depends on type: dropdown → option UUID string; labels → array of option UUIDs; users → {add:[userId], rem:[]}; date → unix ms integer; number → number; checkbox → boolean; text/short-text → string; url/email/phone → string.",
     inputSchema: z.object({
       task_id: z.string().min(1),
       field_id: z.string().min(1),
@@ -650,7 +663,7 @@ const tools = [
 
   {
     name: "clickup_filter_tasks",
-    description: "Filter workspace tasks. Supports assignees, watchers, dates, search text, statuses, tags, list/folder/space filters, and pagination.",
+    description: "Filter workspace tasks. Supports assignees, watchers, dates, search text, statuses, tags, list/folder/space filters, and pagination. Use response_format='summary' (default) to keep token usage low — returns only id, name, status, assignees, due_date, url, list_id, date_updated per task. Pass 'full' only when the caller needs custom fields, description, watchers, attachments.",
     inputSchema: z.object({
       team_id: z.string().optional(),
       assignees: z.array(z.union([z.string(), z.number()])).optional(),
@@ -670,10 +683,11 @@ const tools = [
       list_ids: z.array(z.union([z.string(), z.number()])).optional(),
       folder_ids: z.array(z.union([z.string(), z.number()])).optional(),
       space_ids: z.array(z.union([z.string(), z.number()])).optional(),
-      order_by: z.string().optional(),
+      order_by: z.enum(["id", "created", "updated", "due_date"]).optional(),
       reverse: z.boolean().optional(),
       page: z.number().int().min(0).optional(),
       include_markdown_description: z.boolean().optional(),
+      response_format: z.enum(["summary", "full"]).default("summary").describe("'summary' (default) returns compact task objects ~20x smaller; 'full' returns raw ClickUp task objects."),
     }),
     async handler(args) {
       const teamId = await resolveTeamId(args.team_id);
@@ -691,7 +705,17 @@ const tools = [
         "include_markdown_description"];
       for (const k of simple) if (args[k] !== undefined) query[k] = args[k];
       const data = await clickupFetch("GET", `/api/v2/team/${teamId}/task`, { query });
-      return { tasks: Array.isArray(data?.tasks) ? data.tasks : [], last_page: data?.last_page ?? null, page: args.page ?? 0 };
+      const rawTasks = Array.isArray(data?.tasks) ? data.tasks : [];
+      const format = args.response_format || "summary";
+      const tasks = format === "full" ? rawTasks : rawTasks.map((t) => ({
+        id: t.id, custom_id: t.custom_id ?? null, name: t.name,
+        status: t.status?.status ?? null,
+        assignees: (t.assignees || []).map((a) => ({ id: a.id, username: a.username })),
+        due_date: t.due_date ?? null, date_updated: t.date_updated ?? null,
+        priority: t.priority?.priority ?? null,
+        url: t.url ?? null, list_id: t.list?.id ?? null, list_name: t.list?.name ?? null,
+      }));
+      return { tasks, last_page: data?.last_page ?? null, page: args.page ?? 0, format };
     },
   },
 
@@ -1212,7 +1236,7 @@ function isOptional(schema) {
 // ---------------------------------------------------------------------------
 
 const server = new Server(
-  { name: "pickle-clickup-mcp", version: "2.2.0" },
+  { name: "pickle-clickup-mcp", version: "2.3.0" },
   { capabilities: { tools: {} } }
 );
 
@@ -1261,7 +1285,7 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   process.stderr.write(
-    `[pickle-clickup-mcp] v2.2.0 ready — ${tools.length} tools registered\n`
+    `[pickle-clickup-mcp] v2.3.0 ready — ${tools.length} tools registered\n`
   );
 }
 

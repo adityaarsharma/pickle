@@ -40,7 +40,7 @@ Most likely cause:
 Run /pickle-setup to redo the connection, or fix above and restart.
 ```
 
-**Privacy:** Pickle runs entirely on your machine. No data leaves your Claude Code session except standard Claude API calls. See `docs/security.md`. Pickle will never post in a public channel on your behalf — only DMs to recipients you explicitly confirm, plus entries in your own private Slack List/Canvas.
+**Privacy:** Pickle runs entirely on your machine. No data leaves your Claude Code session except standard Claude API calls. Details: https://github.com/adityaarsharma/pickle#what-pickle-will-never-do. Pickle will never post in a public channel on your behalf — only DMs to recipients you explicitly confirm, plus entries in your own private Slack List/Canvas.
 
 ---
 
@@ -69,6 +69,31 @@ Print:
 ⏱ Scanning: [TIME_LABEL]
 📬 Modes: Inbox scan + Follow-up tracker [+ Confirm-before-send ON if FOLLOWUP_MODE]
 ```
+
+---
+
+## STEP 0.5 — LOAD USER PROFILE (personalise scoring)
+
+Read user preferences. Check these paths in order (first match wins):
+1. `~/.claude/pickle/prefs.json` (canonical path after setup completes)
+2. `~/.claude/skills/pickle-setup/prefs.json` (fallback if setup hasn't self-removed yet)
+
+Extract:
+- `user_role` → `USER_ROLE` (e.g. "Founder / CEO", "Developer / Engineer")
+- `role_context` → `ROLE_CONTEXT` (free-text one-liner)
+
+If missing → proceed with generic scoring. **Never block on missing prefs.**
+
+Parse `ROLE_CONTEXT` into `ROLE_KEYWORDS[]` (action verbs + domain nouns). These boost priority in Step 6. Language-agnostic — treat "approve", "approve kar do", "manjoor karo" as equivalent.
+
+Print:
+```
+🎯 Personalised scoring enabled — Role: $USER_ROLE · Focus: [top 8 keywords]
+```
+
+If no prefs → `🎯 Generic scoring (run /pickle-setup to personalise)`.
+
+**Scoring boosts only.** Step 5A include/exclude ignores role entirely. Nothing is hidden because of role.
 
 ---
 
@@ -178,10 +203,6 @@ Collect every `(channel_id, ts)`. **Dedupe against 3A** — a mention also retur
 ### 3D — Slack Lists assignments
 
 If Lists API is available, call `lists.items.list` for each List I have access to, filter items where `assignee` includes `MY_USER_ID` AND `due_date` within window OR `updated_at >= TIME_CUTOFF_SEC`. Store as `LIST_ASSIGNMENTS[]` — these are existing task-style items awaiting my action.
-
-### 3E — Unread fast-path
-
-If MCP exposes `conversations_unreads`, prioritise unread channels in the scan order (they're more likely to contain fresh action items).
 
 Print:
 ```
