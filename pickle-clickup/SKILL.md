@@ -112,6 +112,31 @@ Paginate with `cursor` until `has_more: false`. Categorise:
 - **DMs** — 1:1 direct messages (`is_dm: true`)
 - **Group DMs** — multi-person group chats (`is_group: true`)
 
+### 3A.1 — Smart activity filter (skip dead channels — save API budget)
+
+For every channel returned, inspect its metadata (`last_message_at` / `updated_at` / equivalent) and apply:
+
+| Signal | Action |
+|--------|--------|
+| `last_message_at` is older than `TIME_CUTOFF_MS` | **Skip entirely** — no messages in window, zero API calls wasted |
+| `last_message_at` is older than **30 days** | Mark `status: dormant` → skip unless user ran with `--include-dormant` |
+| Has unread count > 0 OR mention count > 0 | **Priority scan** — add to front of queue |
+| Channel name matches noise patterns (`random`, `fun`, `memes`, `jokes`, `watercooler`, `gif`, `shitposting`, `off-topic`) | Skip unless user-whitelisted in prefs |
+| Bot-only DM (other party's user id starts with bot prefix OR `is_app: true`) | Skip |
+| I've never sent a message in this channel AND no @mention of me exists | Deprioritise — scan only if scan budget allows |
+
+**Adaptive budget:** If after filtering there are still more than **50 channels**, rank by `last_message_at DESC` and scan top 50 first. If time budget remaining at end, process the rest.
+
+Print:
+```
+🧠 Smart filter:
+  · [N] channels had no messages in window (skipped)
+  · [N] marked dormant (>30 days inactive)
+  · [N] noise channels skipped (random/fun/memes)
+  · [N] priority channels (unread/mentions)
+  · [N] channels queued for scan
+```
+
 ### 3B — Tasks where I'm involved (comments live here)
 
 Call `clickup_filter_tasks` with:

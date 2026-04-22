@@ -161,7 +161,7 @@ Even with `followup` mode on:
 
 ## Open source
 
-Pickle is MIT licensed. The full source is in this repo. Read the `SKILL.md` files — every rule in this document is enforced by those plain-English instructions to Claude.
+Pickle's source is in this repo. Read the `SKILL.md` files — every rule in this document is enforced by those plain-English instructions to Claude.
 
 If you want to verify Pickle does what it claims: read `pickle-clickup/SKILL.md` and `pickle-slack/SKILL.md` end to end. They're the entire product.
 

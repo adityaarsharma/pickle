@@ -8,7 +8,6 @@
 
 [![Version](https://img.shields.io/badge/version-1.0-blue?style=flat-square)](https://github.com/adityaarsharma/pickle)
 [![Claude Code](https://img.shields.io/badge/runs%20in-Claude%20Code-orange?style=flat-square)](https://claude.ai/download)
-[![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![Built by](https://img.shields.io/badge/built%20by-Aditya%20Sharma-purple?style=flat-square)](https://x.com/adityaarsharma)
 
 **Two skills, two ecosystems, zero mixing.**
@@ -158,17 +157,21 @@ Each entry has:
 ```
 Install Pickle from https://github.com/adityaarsharma/pickle
 
-Clone the repo into ~/.claude/skills-src/pickle/
-Then:
-  1. Copy the pickle-clickup/ folder into ~/.claude/skills/pickle-clickup/
-  2. Copy the pickle-slack/ folder into ~/.claude/skills/pickle-slack/
+Clone the repo, then copy each of these folders into ~/.claude/skills/:
+  - pickle-setup/     →  ~/.claude/skills/pickle-setup/
+  - pickle-clickup/   →  ~/.claude/skills/pickle-clickup/
+  - pickle-slack/     →  ~/.claude/skills/pickle-slack/
 
-Tell me what's next after installation.
+After installing, restart Claude Code, then tell me to run /pickle-setup.
 ```
 
-Claude Code handles the rest. **Restart Claude Code** → `/pickle-clickup` and `/pickle-slack` appear in autocomplete ✅.
+Claude Code handles the copy automatically. **Restart Claude Code once** → then:
 
-You can install one or both — they're independent.
+```
+/pickle-setup
+```
+
+This runs the guided onboarding — asks whether you want ClickUp, Slack, or both, walks you through token generation, writes your config, verifies the connection, asks your preferences, and tells you exactly what command to run next. ~3 minutes.
 
 ---
 
@@ -318,7 +321,7 @@ All logic is plain English. Edit `SKILL.md` directly — no code.
 
 PRs welcome. Open an issue for bugs or feature requests.
 
-**MIT licensed. Free forever.** No paid tier, no hosted SaaS, no telemetry, no lock-in. Pickle is a Claude Code skill you install on your own machine — that's the entire product.
+Pickle runs entirely on your own machine. No hosted server, no telemetry, no lock-in.
 
 ---
 

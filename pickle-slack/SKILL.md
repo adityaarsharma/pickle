@@ -113,6 +113,33 @@ Categorise:
 - **DMs** — `im` (1:1)
 - **Group DMs** — `mpim` (multi-person)
 
+### 3A.1 — Smart activity filter (skip dead channels — save API budget)
+
+For each conversation, use metadata already returned by `conversations.list` plus a single cheap `conversations.info` call if needed. Apply:
+
+| Signal | Action |
+|--------|--------|
+| `latest.ts` (or `last_read`) older than `TIME_CUTOFF_SEC` | **Skip entirely** — no messages in window |
+| `latest.ts` older than **30 days** | Mark `status: dormant` → skip unless user opted in |
+| `unread_count_display > 0` OR conversation in `conversations_unreads` | **Priority scan** — front of queue |
+| Channel name matches noise: `random`, `fun`, `memes`, `jokes`, `watercooler`, `gif`, `shitposting`, `off-topic`, `celebrations`, `pets` | Skip unless user-whitelisted |
+| DM with a bot (`is_user_deleted`, `user.is_bot: true`, `user.is_app_user: true`, or name ends in `bot`) | Skip |
+| Channel has 0 messages from me ever AND no @me mention | Deprioritise — scan only if budget allows |
+| Archived (`is_archived: true`) | Already excluded via `exclude_archived` |
+
+**Adaptive budget:** If more than **60 conversations** pass the filter, rank by `latest.ts DESC` + priority flags and scan top 60. Queue the rest if time budget allows.
+
+Print:
+```
+🧠 Smart filter:
+  · [N] conversations had no messages in window (skipped)
+  · [N] marked dormant (>30 days inactive)
+  · [N] noise channels skipped (random/fun/memes/etc)
+  · [N] bot DMs skipped
+  · [N] priority (unread + mentions)
+  · [N] queued for scan
+```
+
 ### 3B — Unread fast-path
 
 If MCP exposes `conversations_unreads`, call it for the list of conversations with unread messages. Merge with 3A — scan unread ones first.
