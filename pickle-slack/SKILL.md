@@ -18,7 +18,7 @@ You operate in two modes simultaneously:
 
 **Requirement:** Slack MCP must be connected. Both options are **100% free**:
 - Official Claude connector (claude.ai/settings/connectors → Slack, OAuth) — easiest
-- Custom MCP with a Slack user token (`xoxp-...`) — scopes: `channels:history`, `groups:history`, `im:history`, `mpim:history`, `channels:read`, `groups:read`, `im:read`, `mpim:read`, `users:read`, `chat:write`, `search:read`, `reminders:write`, `lists:read`, `lists:write`
+- Custom MCP with a Slack user token (`xoxp-...`) — scopes: `channels:history`, `groups:history`, `im:history`, `mpim:history`, `channels:read`, `groups:read`, `im:read`, `mpim:read`, `users:read`, `chat:write`, `im:write`, `search:read`, `reminders:write`, `lists:read`, `lists:write`
 
 ### Pre-flight: if no Slack tool is available
 
@@ -40,7 +40,7 @@ Most likely cause:
 Run /pickle-setup to redo the connection, or fix above and restart.
 ```
 
-**Privacy:** Pickle runs entirely on your machine. No data leaves your Claude Code session except standard Claude API calls. See `docs/security.md`. Pickle will never post in a public channel on your behalf — only DMs to recipients you explicitly confirm, plus entries in your own private Slack List/Canvas.
+**Privacy:** Pickle runs entirely on your machine. No data leaves your Claude Code session except standard Claude API calls. Details: https://github.com/adityaarsharma/pickle#what-pickle-will-never-do. Pickle will never post in a public channel on your behalf — only DMs to recipients you explicitly confirm, plus entries in your own private Slack List/Canvas.
 
 ---
 
@@ -72,6 +72,31 @@ Print:
 
 ---
 
+## STEP 0.5 — LOAD USER PROFILE (personalise scoring)
+
+Read user preferences. Check these paths in order (first match wins):
+1. `~/.claude/pickle/prefs.json` (canonical path after setup completes)
+2. `~/.claude/skills/pickle-setup/prefs.json` (fallback if setup hasn't self-removed yet)
+
+Extract:
+- `user_role` → `USER_ROLE` (e.g. "Founder / CEO", "Developer / Engineer")
+- `role_context` → `ROLE_CONTEXT` (free-text one-liner)
+
+If missing → proceed with generic scoring. **Never block on missing prefs.**
+
+Parse `ROLE_CONTEXT` into `ROLE_KEYWORDS[]` (action verbs + domain nouns). These boost priority in Step 6. Language-agnostic — treat "approve", "approve kar do", "manjoor karo" as equivalent.
+
+Print:
+```
+🎯 Personalised scoring enabled — Role: $USER_ROLE · Focus: [top 8 keywords]
+```
+
+If no prefs → `🎯 Generic scoring (run /pickle-setup to personalise)`.
+
+**Scoring boosts only.** Step 5A include/exclude ignores role entirely. Nothing is hidden because of role.
+
+---
+
 ## STEP 1 — IDENTIFY USER & WORKSPACE
 
 1. Call the Slack MCP's `auth.test` equivalent (or `users.info` with the token user) to get the authenticated user.
@@ -90,23 +115,24 @@ Print: `👤 Running as: $MY_NAME ($MY_USER_ID) in workspace $WORKSPACE_ID`
 **Slack items stay inside Slack.** Destination priority:
 
 1. **Slack Lists (preferred)** — Slack's native task-style database (2024+).
-   - Look for a List named `"Pickle Inbox"` or `"My Pickle"` owned by `MY_USER_ID`.
-   - If not found, create a new private List named `"Pickle Inbox"` with columns:
-     - `Title` (text)
-     - `Type` (select: Inbox · Follow-up)
-     - `Priority` (select: 🔴 Urgent · 🟠 High · 🟡 Normal · ⚪ Low)
-     - `From/To` (text) — sender for Inbox items, recipient for Follow-ups
-     - `Channel` (text)
-     - `Source Link` (link)
-     - `Due` (date)
-     - `Status` (select: Open · Waiting · Done)
-     - `Quote` (text) — exact quote from source message
+   - Use the `slack_list_find_or_create` tool (from `pickle-slack-mcp`) with `name: "Pickle Inbox"`.
+   - This tool finds an existing list OR creates a new private List with the correct columns:
+     - `Title` (text), `Type` (select: Inbox · Follow-up), `Priority` (select: 🔴 Urgent · 🟠 High · 🟡 Normal · ⚪ Low)
+     - `From/To` (text), `Channel` (text), `Source Link` (link — 1-click jump to original message)
+     - `Due` (date), `Status` (select: Open · Waiting · Done), `Quote` (text)
+   - If the tool returns `{ list_id: null, fallback: "self_dm" }`, the Slack Lists API is not available on this plan — proceed to fallback 3.
    - Store `LIST_ID`.
-2. **Canvas fallback** — if Lists API is not exposed by the MCP, use a private Canvas:
+
+2. **Canvas fallback** — if `slack_list_find_or_create` is not available as a tool, use a private Canvas:
    - Look for a Canvas named `"Pickle Inbox"` in the user's DM with themselves, or create one.
    - Append entries as structured bullet blocks (one per item).
    - Store `CANVAS_ID`.
-3. **Plain DM-to-self fallback** — if neither Lists nor Canvas is available, send a single summary DM to the user's own Slack DM channel with the full list formatted with dividers + mrkdwn. Store the DM channel ID.
+
+3. **Plain DM-to-self fallback** — ONLY if Lists AND Canvas are both unavailable.
+   - Use `slack_post_self_dm` to send a single summary DM to the user's own Slack DM channel.
+   - This is the last resort. Always try Lists first.
+
+**⚠️ IMPORTANT: The `pickle-slack-mcp` MCP server MUST be connected (configured at `mcpServers["pickle-slack-mcp"]` in `~/.claude.json`). If `slack_list_find_or_create` is not available as a tool, tell the user to run `/pickle-setup` to configure the MCP.**
 
 Print: `📋 Destination: [Slack List / Canvas / DM-to-self] — [ID] ✓`
 
@@ -145,7 +171,18 @@ For each conversation, use metadata already returned by `conversations.list` plu
 | Channel has 0 messages from me ever AND no @me mention | Deprioritise — scan only if budget allows |
 | Archived (`is_archived: true`) | Already excluded via `exclude_archived` |
 
-**Adaptive budget:** If more than **60 conversations** pass the filter, rank by `latest.ts DESC` + priority flags and scan top 60. Queue the rest if time budget allows.
+**🚨 ANTI-SKIP RULES — NEVER skip based on name or member count alone:**
+
+1. **`latest.ts` is the gate, not the channel name.** Channel names like `hmb-support`, `client-xyz`, `raj-issues` must NOT be skipped because they sound small. If `latest.ts` is within `TIME_CUTOFF_SEC`, scan it.
+2. **Small channels (2–3 members) get PRIORITY treatment**, not deprioritisation. Private 2-person DMs and small support channels are where critical client conversations happen.
+3. **Client relationship channels are ALWAYS scanned.** Detect client context from:
+   - Channel name contains: `support`, `client`, `customer`, `hmb`, `hostmyblog`, `raj`, or any known client/company name
+   - Channel has ≤ 5 members (small = almost certainly important)
+   - Any prior message in `state.json` from this channel was rated HIGH or URGENT
+   If any of these match → mark `is_client_channel: true` and **add to priority queue regardless of other signals**.
+4. **Never skip a channel without first checking `latest.ts`.** The `conversations.list` response always includes `latest.ts`. Read it. If it's within window, scan. Do not use channel name as a filter.
+
+**Adaptive budget:** If more than **60 conversations** pass the filter, rank by `latest.ts DESC` + priority flags (client channels always rank first) and scan top 60. Queue the rest if time budget allows.
 
 Print:
 ```
@@ -178,10 +215,6 @@ Collect every `(channel_id, ts)`. **Dedupe against 3A** — a mention also retur
 ### 3D — Slack Lists assignments
 
 If Lists API is available, call `lists.items.list` for each List I have access to, filter items where `assignee` includes `MY_USER_ID` AND `due_date` within window OR `updated_at >= TIME_CUTOFF_SEC`. Store as `LIST_ASSIGNMENTS[]` — these are existing task-style items awaiting my action.
-
-### 3E — Unread fast-path
-
-If MCP exposes `conversations_unreads`, prioritise unread channels in the scan order (they're more likely to contain fresh action items).
 
 Print:
 ```
@@ -249,27 +282,61 @@ Print rate-limit summary:
 
 ## STEP 5A — MODE A: MY INBOX
 
-For every message in `ALL_MESSAGES[]`, apply:
+For every message in `ALL_MESSAGES[]`, apply the filter below.
+
+**CRITICAL — DM vs Channel rules are different:**
+
+### 📬 DMs and multi-person DMs (conversation type = `im` or `mpim`)
+In a private conversation that includes me, I am implicitly the audience. **@mention is NOT required.**
+Include ANY message in a DM/mpim that contains:
+- A question ending in `?` (any language)
+- A request, task, or action item — even directed at a colleague in the same DM
+- A pending decision waiting for anyone's confirmation
+- A report or update that needs a response
+- Strategy/planning questions ("what do you think", "any ideas", "plan karo", "kya socha")
+- Suggestions waiting for approval before execution
+
+**Why:** If you're in the DM, every unanswered message in that thread is your concern. Missing these is how real work gets dropped. Pickle's #1 promise: no missed task from any corner.
+
+### 📢 Channels (conversation type = `channel` or `group`)
+In public/team channels, @mention IS the filter.
 
 ### ✅ INCLUDE if ANY of these are true:
 
 1. **Direct @mention** — `text` contains `<@MY_USER_ID>`
-2. **DM to me** — conversation type is `im` AND `user_id != MY_USER_ID` AND no reply from me in the thread
+2. **DM/mpim message** — conversation is `im` or `mpim` AND `user_id != MY_USER_ID` (NO @mention required — see DM rules above)
 3. **Question directed at me** — ends with `?` AND is in DM OR thread where I last spoke OR follows an @mention of me
-4. **Blocker language** — "waiting for you", "need your input", "need your approval", "can you decide", "your call", "blocker"
-5. **My unresolved commitment** — I said "I will…", "I'll do…", "Let me check…" in a thread AND no closure from me afterward
+4. **Blocker language** — "waiting for you", "need your input", "need your approval", "can you decide", "your call", "blocker", "confirm karein", "bata do", "sir confirm"
+5. **My unresolved commitment** — I said "I will", "I'll do", "Let me check", "dekh leta hoon", "main karunga" in a thread AND no closure from me afterward
 6. **Keyword urgent + my area** — "urgent", "blocker", "production", "customer issue" AND context mentions my domain/ownership
+
+### 🌐 Multilingual intent detection (MUST apply — do not just keyword-match)
+
+Slack teams write in Hindi, Gujarati, English, or any mix. Treat these equivalently:
+
+| Meaning | English | Hindi/Hinglish | Gujarati |
+|---------|---------|----------------|----------|
+| Waiting for approval | "once you confirm" | "aap bolo toh karunga", "confirm karein" | "tame confirm karo" |
+| Asking for opinion | "what do you think" | "kya lagta hai", "aap kya sochte ho" | "tame shu vicharcho" |
+| Task request | "please do this" | "yeh karo", "kar do", "ho jayega?" | "aa karo", "thase?" |
+| Asking for update | "any update?" | "kya update hai?", "batao" | "shu update che?" |
+| Question | ends with `?` | ends with `?` or `hain?` or `hai?` | ends with `?` or `che?` |
+| Pending/in-progress | "working on it" | "kar raha hoon", "chal raha hai" | "kari rahyo chhu" |
+
+When a message INTENT matches any row above — include it. Do not skip because the exact English phrase wasn't used.
 
 ### ❌ SKIP unconditionally:
 
 - **Standup posts**: contain "1. Worked on" AND "2. Will work on" (+ optional "3. Blockers/Clear")
-- **Greetings**: "good morning", "gm", "good night", "happy birthday", celebrations, reactji-only messages
-- **FYI announcements**: statements with no question / no request, ending with `.` or `!`
+- **Pure greetings**: "good morning", "gm", "good night", "happy birthday", celebrations, reactji-only messages
+- **Pure FYIs with zero ask**: "FYI — we shipped X" ending with no question, no request
 - **Bot messages**: `subtype: "bot_message"` or `user_id` starts with `B`
 - **My own messages**: `user_id == MY_USER_ID` — UNLESS it's a commitment thread I haven't followed through
-- **Completed**: "done ✓", "shipped", "fixed", "released", "resolved", ":white_check_mark:"
+- **Completed with proof**: "done ✓", "shipped", "fixed [link]", "resolved", ":white_check_mark:" with actual proof
 - **Channel pings**: `<!channel>`, `<!here>`, `<!everyone>` where anyone can respond (not specifically me)
 - **Reactji-only replies**: messages consisting only of emoji
+
+**NOISE RULE:** When in doubt — INCLUDE. A false positive (extra task) is better than a false negative (missed task). You can always remove a task. You cannot un-miss a decision.
 
 ---
 
@@ -380,17 +447,67 @@ If `FOLLOWUP_MODE = false` → show the list in the final report only. Do not as
 
 ## STEP 6 — PRIORITY SCORING
 
+### 🔥 CLIENT RELATIONSHIP SIGNALS — Apply FIRST, before any other scoring
+
+When a message shows that a **paying client or customer** is frustrated, escalating, or waiting on a late deliverable — **override the base urgency and force a floor**. This check runs BEFORE generic urgency scoring.
+
+**Force 🟠 HIGH minimum** (even if the message would otherwise be NORMAL or LOW) when:
+- Sender is from a known client channel (`is_client_channel: true` from Step 3A.1)
+- Message contains frustration language (any language/tone):
+  - "unreliable", "not professional", "missing", "wasted", "disappointed", "not working", "late", "overdue"
+  - "report nahi aaya", "mil nahi raha", "bahut late ho gaya", "yeh kab hoga"
+  - Client explicitly says they're blocked: "can't move forward", "need this NOW", "still waiting"
+- A client-facing deliverable (report, update, document, invoice) was requested and remains unsent after ≥ 3 days
+
+**Force 🔴 URGENT** when:
+- Client has expressed strong dissatisfaction: "core job missing", "unreliable team", "reconsidering" (i.e. churn risk signals)
+- Client-facing deliverable is ≥ 7 days overdue
+- Client message has received zero response from your team
+
+**Floor rule is absolute:** No client-signal item can ever be rated below 🟠 HIGH, regardless of channel size, member count, or noise-filter logic. A missed client task is worse than 10 missed internal tasks.
+
+---
+
 ### Urgency:
-- **URGENT 🔴**: `<!channel>` + my domain, DM marked urgent, deadline today, production/customer issue in my area
-- **HIGH 🟠**: decision blocks release, multiple people waiting, overdue commitment
+- **URGENT 🔴**: `<!channel>` + my domain, DM marked urgent, deadline today, production/customer issue in my area, client churn risk
+- **HIGH 🟠**: decision blocks release, multiple people waiting, overdue commitment, client frustration signal
 - **NORMAL 🟡**: peer request, this-week deadline
 - **LOW ⚪**: soft ask, no deadline
 
-### Importance:
+### Importance (generic):
 - +2: sender is CEO / founder / direct manager (use Slack profile titles)
 - +1: sender is team lead
 - +1: thread has 3+ people waiting
 - −1: I'm in group DM but not primary target
+
+### 🎯 Role-based boost (personalisation from prefs.json, loaded in Step 0.5)
+
+On top of the generic score, apply a **+1 boost** when the message aligns with `USER_ROLE`:
+
+| USER_ROLE | What gets boosted (+1) |
+|-----------|------------------------|
+| Founder / CEO | Deals, partnerships, pricing decisions, approvals, investor/board items, external-facing asks |
+| Manager / Team Lead | Team blockers, hiring/performance asks, cross-team coordination, escalations from reports |
+| Developer / Engineer | PR reviews, production incidents, bug escalations, deploy blockers, spec clarifications |
+| Designer / UX | Design reviews, Figma feedback, component decisions, brand approvals |
+| Marketing / Content | Copy approvals, launch timing, title/headline changes, campaign decisions, content reviews |
+| Sales / BD | Deal updates, partner requests, contract asks, quote approvals, intro requests |
+| Customer Success | Escalations, refund asks, churn risks, complaint threads, renewals |
+| QA / Testing | Release blockers, bug verifications, test plan approvals |
+| Product Manager | Spec questions, prioritisation calls, roadmap decisions, scope changes |
+| Operations / Finance / HR | Policy questions, approvals, compliance items, hiring/payroll |
+
+### 🎯 Role-context match (+1 extra)
+
+If the message text contains ANY word from `ROLE_KEYWORDS[]` (extracted in Step 0.5 from your day-to-day description) → **+1 more**.
+
+Example: If ROLE_CONTEXT = "I approve YouTube titles", and a Slack DM says "sir yeh title confirm karo" — keyword "title" matches → +1 extra.
+
+### Final score
+
+Final priority tier = base urgency tier → bumped one level UP if (importance_score + role_boosts) ≥ 2.
+
+**Floor rule:** Role can only BOOST priority, never lower it below its base tier. Role is a lens, not a veto. Nothing gets hidden.
 
 ---
 
@@ -424,75 +541,97 @@ Query the Slack List for existing entries where `Source Link` matches the curren
 
 ## STEP 8 — CREATE ENTRIES + REMINDERS
 
+### Source link construction (required for EVERY entry)
+
+Before creating any entry, construct the permalink for the source message:
+
+```
+WORKSPACE_DOMAIN = [team].slack.com   (from auth.test response, e.g. "posimyth.slack.com")
+TS_NO_DOT        = message ts with the dot removed (e.g. "1776742222.463349" → "1776742222463349")
+PERMALINK        = https://[WORKSPACE_DOMAIN]/archives/[channel_id]/p[TS_NO_DOT]
+```
+
+**Never call `chat.getPermalink` per message** — construct it from channel_id + ts. This saves N API calls per run.
+
+---
+
 ### For MODE A (Inbox) items:
 
-**1. Add a row to the Slack List** (or fallback Canvas/DM):
+**1. Add a row to the Slack List** — call `slack_list_item_add` tool (from `pickle-slack-mcp`):
 ```
-Title:       [action verb] + [description] (max 80)
-Type:        Inbox
-Priority:    🔴 Urgent / 🟠 High / 🟡 Normal / ⚪ Low
-From/To:     @[sender name]
-Channel:     #[channel] or DM
-Source Link: [permalink]
-Due:         URGENT=today · HIGH=tomorrow · NORMAL=end of week · LOW=next week
-Status:      Open
-Quote:       [Full ClickUp-style context block — see format below]
+list_id:     LIST_ID
+title:       [action verb] + [description] (max 80 chars)
+item_type:   "Inbox"
+priority:    "🔴 Urgent" | "🟠 High" | "🟡 Normal" | "⚪ Low"
+from_to:     "@[sender display name]"
+channel:     "#[channel name]" or "DM: [name]"
+source_link: PERMALINK  ← 1-click jump back to the original message (REQUIRED — never omit)
+due:         URGENT="Today" · HIGH="Tomorrow" · NORMAL="[end of week date]" · LOW="[next week date]"
+status:      "Open"
+quote:       "[Full ClickUp-style context block — see format below, max 2000 chars]"
 ```
 
-**Quote field format** (write this every time — not a one-liner, a real description):
+**Quote field — write a real description, not a one-liner:**
 ```
 From: @[sender] in #[channel] · [date]
 Message: "[verbatim or near-verbatim excerpt — the actual thing they said]"
-Context: [1-2 sentences of background — why this matters, what project/client this relates to]
+Context: [1-2 sentences of background — what project/client/decision this relates to, why it matters]
 Action needed: [exactly what Aditya needs to do — be specific, not "review this"]
 ```
 Example:
 ```
 From: @Mehul in #rc-design · Apr 22
-Message: "Can you check the layout system V01 in Figma? Added the spacing tokens and nav variants — need your sign-off before we hand to dev."
-Context: RunCloud homepage redesign project. Mehul is the lead designer. This is the first layout system draft — dev handoff is blocked on your approval.
-Action needed: Open Figma, review spacing tokens + nav variants, leave comments or approve so Mehul can proceed to dev handoff.
+Message: "Can you check the layout system V01 in Figma? Added spacing tokens and nav variants — need your sign-off before we hand to dev."
+Context: RunCloud homepage redesign. Mehul is lead designer. Dev handoff is blocked on approval.
+Action needed: Open Figma, review spacing tokens + nav variants, leave comments or approve so Mehul can proceed.
 ```
 
-**2. Set a Slack reminder** for yourself via `reminders.add`:
-- `text`: `🥒 Pickle: [title] — [permalink]`
-- `time`: matches `Due` date
-- `user`: `MY_USER_ID` (reminder to self)
+**2. Set a Slack reminder** — call `slack_reminder_add` tool (from `pickle-slack-mcp`):
+```
+text:    "🥒 Pickle: [title] — [PERMALINK]"
+time:    Unix timestamp matching the Due date (e.g. today 9am = today_epoch)
+user_id: MY_USER_ID
+```
 
-**3. Write state** — record `channel_id:ts → list_entry_id + reminder_id` in `state.json`.
+**3. Write state** — record `channel_id:ts → { list_entry_id, reminder_id }` in `state.json`.
+
+---
 
 ### For MODE B (Follow-up) items:
 
-**Priority & Due**:
+**Priority & Due:**
 - `OVERDUE` / `escalation_needed` / `recurring_stopped` → 🟠 High, due today
 - `acknowledged_not_delivered` / `DUE_SOON` → 🟡 Normal, due deadline / tomorrow
 - `no_reply` < 2 days → 🟡 Normal, due today + 1
 
-**Add Slack List row:**
+**Call `slack_list_item_add`:**
 ```
-Title:       Follow up → @[recipient]: [what was asked] (max 80)
-Type:        Follow-up
-Priority:    [above]
-From/To:     @[recipient]
-Channel:     #[channel] or DM
-Source Link: [permalink to my original message]
-Due:         [above]
-Status:      Waiting (no_reply / acknowledged_not_delivered / recurring_stopped / OVERDUE / escalation_needed)
-Quote:       [Full ClickUp-style context block — same format as Inbox above]
+list_id:     LIST_ID
+title:       "Follow up → @[recipient]: [what was asked]" (max 80 chars)
+item_type:   "Follow-up"
+priority:    [above]
+from_to:     "@[recipient display name]"
+channel:     "#[channel name]" or "DM: [name]"
+source_link: PERMALINK  ← permalink to MY original message where I made the ask (REQUIRED)
+due:         [above]
+status:      "Waiting"
+quote:       "[Full ClickUp-style context block — same format as Mode A, max 2000 chars]"
 ```
-Quote example for Follow-up:
+Example:
 ```
 To: @Alex in #growth · originally asked Apr 16
 Message: "Hey Alex, any thoughts on the RunCache audit doc I shared? Let me know if the positioning angles work."
-Context: RunCache product audit — Alex hasn't replied in 6 days. Positioning decisions needed before copy can proceed.
-Action needed: Chase Alex for feedback on the audit doc. If no reply by Apr 25, escalate or decide unilaterally.
+Context: RunCache product positioning — Alex hasn't replied in 6 days. Copy decisions are blocked on his feedback.
+Action needed: Chase Alex for feedback. If no reply by Apr 25, decide positioning unilaterally and proceed.
 ```
 
-Plus a Slack reminder to self for the due date.
+Plus `slack_reminder_add` for the due date (same pattern as Mode A).
+
+---
 
 ### Step 8.5 — Send completion DM to self
 
-After ALL list items and reminders are created, post a self-DM notification via `slack_post_self_dm` so the user gets a Slack ping without having to look for the List:
+After ALL items and reminders are created, post a self-DM via `slack_post_self_dm` as a notification ping:
 
 ```
 🥒 Pickle done — [N] items added to your Slack List
@@ -500,21 +639,21 @@ After ALL list items and reminders are created, post a self-DM notification via 
 🔴 Urgent ([N])  🟠 High ([N])  🟡 Normal ([N])  ⚪ Low ([N])
 
 [For each HIGH+ item:]
-• [title] → [permalink]
+• [title] → [PERMALINK]
 
 🔗 Full list: slack://app.slack.com/lists/[LIST_ID]
-⏰ Reminders set for each item.
+⏰ Reminders set for each item — check Slackbot at the due time.
 
-Mark items Done when handled. Done items are auto-cleaned from the list after 24h via /pickle-slack cleanup.
+Mark items Done when handled. Done items auto-clean after 24h (/pickle-slack cleanup).
 ```
 
-This is a **notification only** — the Slack List is still the primary record. If List creation failed entirely, do NOT fall back to DM-as-inbox. Report the error instead.
+This is a **notification only** — the Slack List is the primary record. If List creation failed entirely, do NOT fall back to DM-as-inbox. Report the error instead.
 
 ### Archive / Done cleanup rule
 
-- When you mark an item **Done** in the Slack List, it stays visible for 24 hours then should be removed.
-- To clean up Done items, run: `/pickle-slack cleanup` (future command — will call `slack_list_item_delete` for Done items older than 24h).
-- Status grouping in the List UI: open the List → click **Group by Status** to see Open / Waiting / Done sections separately.
+- Status = **Done** items stay visible for 24 hours, then should be removed.
+- To clean up: `/pickle-slack cleanup` (reads Done items via `slack_list_items_list`, deletes those older than 24h via `slack_list_item_delete`).
+- In the Slack List UI: click **Group by Status** to see Open / Waiting / Done sections separately.
 
 ---
 

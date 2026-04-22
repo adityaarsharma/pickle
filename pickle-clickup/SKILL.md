@@ -14,41 +14,34 @@ You are the **pickle-clickup** agent for the authenticated ClickUp user. Pickle 
 **Mode A — Inbox:** What needs MY attention (decisions, approvals, replies people are waiting on)
 **Mode B — Follow-up:** What I asked others to do that hasn't been confirmed/completed yet
 
-**Requirement:** ClickUp MCP must be connected. Both supported paths are **100% free, forever**:
+**Requirement:** ClickUp must be connected. Both supported paths are **100% free, forever**:
 
-1. **Pickle's own MCP** (recommended) — bundled at `~/.claude/skills/pickle-mcp/clickup/server.mjs`, MIT license, no license key, no rate limits. Uses your personal ClickUp API token.
-2. **Official Claude ClickUp connector** (OAuth) — claude.ai → Settings → Connectors → ClickUp. Free, limited to 50-300 calls/day.
-
-**Do not use `@taazkareem/clickup-mcp-server`** — that package moved to a paid model ($9/mo). Pickle's own MCP is a free, drop-in replacement with the same tool names.
+1. **Official Claude ClickUp connector** (OAuth) — claude.ai → Settings → Connectors → ClickUp. Recommended for individual use. 2 clicks, no terminal.
+2. **Pickle's own MCP** — bundled at `~/.claude/pickle-mcp/clickup/server.mjs`. Recommended if your Claude account is shared with teammates, so each person keeps their own isolated ClickUp session.
 
 ### Pre-flight: if no ClickUp tool is available
 
-If `clickup_get_workspace_hierarchy` (and all other `clickup_*` tools) are missing, do NOT silently fail. Diagnose:
-
-1. Read `~/.claude.json` to check if any old paid-package config is lingering.
-2. Print exactly this:
+If `clickup_get_workspace_hierarchy` (and all other `clickup_*` tools) are missing, don't silently fail. Print exactly this:
 
 ```
-❌ ClickUp MCP tools aren't available in this session.
+❌ ClickUp isn't connected in this session.
 
 Most likely cause:
 
-  A) Setup was never run. Fix: /pickle-setup
-  B) Config written but Claude Code wasn't restarted → quit fully + reopen.
-  C) Running the old paid @taazkareem/clickup-mcp-server. Fix: remove that
-     mcpServers.clickup entry from ~/.claude.json and re-run /pickle-setup
-     — it'll install Pickle's own free MCP instead.
-  D) node or npm isn't on PATH (needed for Pickle's own MCP). Install
-     Node.js LTS from nodejs.org.
-  E) You connected the Claude OAuth connector but never restarted Claude
-     Code after connecting on claude.ai → quit + reopen.
+  A) Setup was never run → run /pickle-setup
+  B) Setup completed but Claude Code wasn't restarted → fully quit (Cmd+Q)
+     and reopen.
+  C) OAuth connector connected on claude.ai but Claude Code wasn't
+     restarted after → quit + reopen.
+  D) If using the personal-token path: node or npm isn't on PATH.
+     Install Node.js LTS from nodejs.org, then re-run /pickle-setup.
 
-Do not run me again until ClickUp tools are live.
+Do not run me again until ClickUp is live.
 ```
 
 **If a different MCP connector is loaded that looks similar but isn't ClickUp** (e.g. Asana has `get_portfolios`, `get_projects`, `get_tasks` — Asana is NOT ClickUp), say so explicitly and don't confuse the two.
 
-**Privacy:** Pickle runs entirely on your machine. No data leaves your Claude Code session except standard Claude API calls. See `docs/security.md`.
+**Privacy:** Pickle runs entirely on your machine. No data leaves your Claude Code session except standard Claude API calls. Details: https://github.com/adityaarsharma/pickle#what-pickle-will-never-do
 
 ---
 
@@ -85,6 +78,48 @@ Print:
 ⏱ Scanning: $TIME_LABEL
 📬 Modes: Inbox scan + Follow-up tracker [+ Confirm-before-send ON if FOLLOWUP_MODE]
 ```
+
+---
+
+## STEP 0.5 — LOAD USER PROFILE (personalise scoring)
+
+Read user preferences. Check these paths in order (first match wins):
+1. `~/.claude/pickle/prefs.json` (canonical path after setup completes)
+2. `~/.claude/skills/pickle-setup/prefs.json` (fallback if setup hasn't self-removed yet)
+
+Extract:
+
+- `user_name` → store as `USER_NAME_PREF` (display name, fallback to ClickUp name later)
+- `user_role` → store as `USER_ROLE` (e.g. "Founder / CEO", "Developer / Engineer")
+- `role_context` → store as `ROLE_CONTEXT` (free-text one-liner describing day-to-day work)
+
+If `prefs.json` is missing or any field blank → proceed normally (defaults to generic scoring). **Never block on missing prefs.**
+
+### Extract `ROLE_KEYWORDS[]` from `ROLE_CONTEXT`
+
+Parse the role-context sentence and pull out **action verbs** and **domain nouns** specific to the user's job. These become boost terms in Step 6 (Priority Scoring).
+
+Example extractions:
+
+| ROLE_CONTEXT | ROLE_KEYWORDS |
+|--------------|---------------|
+| "I approve YouTube titles, blog topics, launches" | approve, title, blog, topic, launch |
+| "I review PRs and handle production incidents" | PR, review, production, incident, bug, deploy |
+| "I close deals and handle partnership requests" | deal, partnership, partner, contract, close |
+| "I design UI components and review Figma" | design, Figma, UI, component, review, mockup |
+
+Also treat synonyms across Hindi/Gujarati/English as equivalent (e.g. "approve" = "approve kar do" = "manjoor karo").
+
+Print:
+```
+🎯 Personalised scoring enabled
+   Role: $USER_ROLE
+   Focus: [$ROLE_KEYWORDS joined, max 8 shown]
+```
+
+If no prefs file → print `🎯 Generic scoring (no role profile — run /pickle-setup to personalise)`.
+
+**Important:** These are SCORING boosts only. Step 5A (include/exclude) ignores role entirely. Nothing is hidden because of role.
 
 ---
 
@@ -146,20 +181,19 @@ For every channel returned, inspect its metadata (`last_message_at` / `updated_a
 
 | Signal | Action |
 |--------|--------|
-| `last_message_at` is older than `TIME_CUTOFF_MS` | **Skip entirely** — no messages in window, zero API calls wasted |
-| `last_message_at` is older than **30 days** | Mark `status: dormant` → skip unless user ran with `--include-dormant` |
+| `last_message_at` is older than `TIME_CUTOFF_MS` | **Skip entirely** — no messages in the REQUESTED window, zero API calls wasted |
 | Has unread count > 0 OR mention count > 0 | **Priority scan** — add to front of queue |
 | Channel name matches noise patterns (`random`, `fun`, `memes`, `jokes`, `watercooler`, `gif`, `shitposting`, `off-topic`) | Skip unless user-whitelisted in prefs |
 | Bot-only DM (other party's user id starts with bot prefix OR `is_app: true`) | Skip |
-| I've never sent a message in this channel AND no @mention of me exists | Deprioritise — scan only if scan budget allows |
+| I've never sent a message in this channel AND no @mention of me exists AND `is_dm: false` AND `is_group: false` | Deprioritise — scan only if scan budget allows |
+| DM or group DM (`is_dm: true` OR `is_group: true`) | **ALWAYS scan regardless of my message history** — DMs are private conversations I'm part of |
 
 **Adaptive budget:** If after filtering there are still more than **50 channels**, rank by `last_message_at DESC` and scan top 50 first. If time budget remaining at end, process the rest.
 
 Print:
 ```
 🧠 Smart filter:
-  · [N] channels had no messages in window (skipped)
-  · [N] marked dormant (>30 days inactive)
+  · [N] channels had no messages in the $TIME_LABEL window (skipped)
   · [N] noise channels skipped (random/fun/memes)
   · [N] priority channels (unread/mentions)
   · [N] channels queued for scan
@@ -184,7 +218,7 @@ Call `clickup_search_reminders` with `assignee_id: MY_USER_ID` (or equivalent). 
 
 ### 3D — Docs I own or was mentioned in (best-effort)
 
-If the MCP exposes `clickup_list_document_pages` or `clickup_search` with a document scope, search for documents updated within window where `MY_USER_ID` is an author or mentioned. This is best-effort — skip silently if tools unavailable. Store as `ACTIVE_DOCS[]`.
+If `clickup_search_docs` is available, list Docs updated within window (filter by `date_updated_gt >= TIME_CUTOFF_MS` when the API supports it). Store as `ACTIVE_DOCS[]`. Skip silently if the tool isn't available (connector-path users may not have Docs v3 exposed).
 
 Print:
 ```
@@ -197,14 +231,42 @@ Print:
 
 ---
 
-## STEP 4 — SCAN ALL SOURCES (PARALLEL + RATE-SAFE)
+## STEP 4 — SCAN ALL SOURCES (PARALLEL + TOKEN-OPTIMIZED)
 
-**API safety rules (hard limits):**
-- Parallel batch size: **6 requests at a time** (ClickUp's per-token limit is ~100/min)
-- On HTTP 429 → exponential backoff: wait 2s, then 4s, then 8s · max 3 retries · then skip source
-- Pagination hard cap: **20 pages per source** (20 × 50 = 1000 messages max per channel/task)
-- Time cap: if total scan time exceeds **120s**, print a warning and proceed with what was fetched
-- Early-exit: if a page returns `next_cursor: null` OR 0 messages in window → stop paginating that source
+### Token budget — print upfront, honor it
+
+Before scanning, compute and print an estimate so the user sees the cost:
+
+```
+📊 Scan plan ($TIME_LABEL window)
+   · [N] active channels  · [N] active DMs  · [N] group DMs
+   · ~[M] messages estimated in window
+   · Est. wait: [T] seconds
+   · Est. token budget: ~[K]K tokens  (I'll stay under this)
+```
+
+**Hard budget cap:** 60K input tokens for the whole scan. If estimated total exceeds that, automatically narrow to: DMs + group DMs + channels where I'm @mentioned + tasks I own. Skip broader channel scans unless the user explicitly reruns with `--wide`.
+
+### API safety rules (hard limits)
+
+- **Parallel batch size:** 6 requests at a time (ClickUp per-token limit ~100/min)
+- **429 backoff:** 2s → 4s → 8s · max 3 retries · then skip source
+- **Pagination cap:** 10 pages per source (10 × 50 = 500 messages max per channel)
+- **Time cap:** 120s total wall-clock. If exceeded → stop fetching, proceed with what's collected
+- **Early-exit:** `next_cursor: null` OR 0 messages in window → stop paginating immediately
+- **Per-message size cap:** truncate any single message body to 2000 chars before passing to analysis. Flagged as `[truncated]`.
+
+### Synthesis via subagent (critical — saves main context)
+
+After collecting all messages, DO NOT paste the raw payloads into the main conversation. Instead:
+
+1. Before writing the new file, clean up old scratch: `find ~/.claude/skills/pickle-clickup/.scratch -name 'scan-*.json' -mtime +7 -delete 2>/dev/null` — removes scratch files older than 7 days so daily runs don't accumulate into a GB of old chat payloads over a year.
+2. Write collected messages to `~/.claude/skills/pickle-clickup/.scratch/scan-<timestamp>.json`
+2. Launch a general-purpose subagent via the `Task` tool with a prompt like:
+   > "Read `<scratch path>`. Apply the Step 5A inclusion filter (see pickle-clickup/SKILL.md) and the multilingual intent rules. Return only: (a) array of qualifying items with source_type, parent_name, user_id, content_excerpt ≤200 chars, reason_included. (b) empty array if none. Return as JSON. Under 2000 tokens."
+3. Main thread reads only the compact JSON back — never sees the raw messages
+
+This keeps main context lean so scans never burn through tokens on chat logs you'll never re-read.
 
 ### 4A — Chat channel messages (+ replies)
 
@@ -240,7 +302,7 @@ Each reminder from `INCOMING_REMINDERS[]` → synthesise a message entry (`sourc
 
 ### 4F — Docs (best-effort)
 
-If `ACTIVE_DOCS[]` populated, fetch page content for each via `clickup_get_document_pages` and scan for my @mention. Batch in parallel 6. Add matches as `source_type: doc_mention`.
+If `ACTIVE_DOCS[]` populated, fetch page content for each via `clickup_get_doc_pages` and scan for my @mention in each page. Batch in parallel 6. Add matches as `source_type: doc_mention`.
 
 On connector errors → skip that source, add name to `ERRORS[]`, continue. Never fail the whole run because one source errored.
 
@@ -271,26 +333,62 @@ Print rate-limit summary:
 
 ## STEP 5A — MODE A: MY INBOX (What needs MY action)
 
-For every message in `ALL_MESSAGES[]`, apply this filter:
+For every message in `ALL_MESSAGES[]`, apply this filter.
 
-### ✅ INCLUDE if ANY of these are true:
+**CRITICAL — DM vs Channel rules are different:**
 
-1. **@mention of me** — content contains reference to `MY_USER_ID`, `MY_NAME`, or `@mention` tag pointing at current user (applies to chat messages AND task comments)
-2. **Question directed at me** — message ends with `?` AND is addressed to me (DM, thread where I last spoke, task comment replying to mine, or after an @mention)
-3. **Someone is blocked waiting on me** — contains phrases like "waiting for you", "need your input", "need your approval", "can you decide", "what do you think", "your call"
-4. **My unresolved commitment** — I previously said "I will…", "I'll do…", "Let me…", "I'll check…" in a thread or task comment AND no closure exists from me afterward
-5. **I'm the assigned dev/owner** — source is a task comment on a task where `MY_USER_ID` is assignee AND the comment flags urgency or a blocker
-6. **Task assignment change** — a task comment / system event indicates I was just made assignee or watcher
-7. **Partnership / deal needs my response** — message is in a partnership/deal context and directly asks for my reply or approval
+### 📬 DMs and Group DMs (source_type = `dm` or `group_dm`)
+In a private conversation that includes me, I am implicitly the audience. **@mention is NOT required.**
+Include ANY message in a DM/group DM that contains:
+- A question ending in `?` (any language)
+- A request, task, or action item — even directed at a colleague in the same DM
+- A pending decision waiting for anyone's confirmation
+- A report or update that needs a response
+- Strategy/planning questions ("kya sochna chahiye", "any ideas", "what do you think", "plan karo")
+- Suggestions waiting for approval before execution
+
+**Why:** If you're in the DM, every unanswered message in that thread is your concern. Missing these is how real work gets dropped.
+
+### 📢 Channels and Task Comments (source_type = `channel` or `task_comment` etc.)
+In public/team spaces, @mention IS the filter. Include if ANY of these:
+
+### ✅ INCLUDE if ANY of these are true (all source types):
+
+1. **@mention of me** — content contains reference to `MY_USER_ID`, `MY_NAME`, or @mention tag pointing at me
+2. **Question directed at me** — message ends with `?` AND addressed to me (DM thread / replying to my comment / after @mention)
+3. **Blocked on me** — "waiting for you", "need your input", "need your approval", "can you decide", "what do you think", "your call", "confirm karein", "bata do", "approve karo", "sir confirm", "sir bolo"
+4. **My unresolved commitment** — I said "I will", "I'll do", "dekh leta hoon", "main karunga", "I'll check" AND no closure from me afterward
+5. **I'm assignee on the task** — source is a task comment on a task where `MY_USER_ID` is assignee AND comment flags urgency/blocker
+6. **Task assignment change** — I was just made assignee or watcher
+7. **Partnership / deal** — message asks for my reply or approval in a deal/partnership context
+8. **In DM/group DM: any pending question or decision** — see DM rules above (no @mention needed)
+
+### 🌐 Multilingual intent detection (MUST apply — do not just keyword-match)
+
+Analyse the MEANING of the message, not just keywords. ClickUp teams write in Hindi, Gujarati, and English — often mixed in one sentence. Treat these equivalently:
+
+| Meaning | English | Hindi/Hinglish | Gujarati |
+|---------|---------|----------------|----------|
+| Waiting for approval | "once you confirm" | "aap bolo toh karunga", "confirm karein" | "tame confirm karo" |
+| Asking for opinion | "what do you think" | "kya lagta hai", "aap kya sochte ho" | "tame shu vicharcho" |
+| Task request | "please do this" | "yeh karo", "kar do", "ho jayega?" | "aa karo", "thase?" |
+| Asking for update | "any update?" | "kya update hai?", "batao" | "shu update che?" |
+| Question | ends with `?` | ends with `?` or `hain?` or `hai?` | ends with `?` or `che?` |
+| Pending/in-progress | "working on it" | "kar raha hoon", "chal raha hai" | "kari rahyo chhu" |
+
+When a message INTENT matches any row above — include it. Do not skip because the exact English phrase wasn't used.
 
 ### ❌ SKIP unconditionally:
 
-- **Standup messages**: contain "1. Worked on" AND "2. Will work on" AND ("3. All clear" OR "3. No all clear")
-- **Greetings**: "Good morning", "Good night", "Happy Birthday", birthday wishes, celebrations
-- **FYIs with no ask**: announcements ending without a question or request
-- **My own messages**: `user_id == MY_USER_ID` — unless it's a commitment thread where I haven't followed through
-- **Completed items**: "Done ✓", "Fixed", "Released", "Shipped", "Resolved", "Closed"
-- **Mass group pings**: @followers / @channel / @everyone (not specifically me)
+- **Standup messages**: "1. Worked on" AND "2. Will work on" AND ("3. All clear" OR "3. No all clear")
+- **Pure greetings**: "Good morning", "Good night", "Happy Birthday", birthday-only messages
+- **Pure FYIs with zero ask**: "FYI — we shipped X" ending with no question and no request
+- **My own messages**: `user_id == MY_USER_ID` — unless it's a commitment thread I haven't closed
+- **Completed items with proof**: "Done ✓ [link]", "Shipped", "here's the file [attachment]" — must have actual proof
+- **Mass group pings**: @followers / @channel / @everyone — not specifically for me or team decisions
+- **Reactions-only**: emoji-only replies with no text intent
+
+**NOISE RULE:** When in doubt — INCLUDE. A false positive (extra task) is better than a false negative (missed task). You can always remove a task. You cannot un-miss a decision.
 
 ---
 
@@ -428,20 +526,68 @@ If `FOLLOWUP_MODE = false` → show the grouped list in the final report only. D
 
 ## STEP 6 — PRIORITY SCORING
 
+### 🔥 CLIENT RELATIONSHIP SIGNALS — Apply FIRST, before any other scoring
+
+When a message involves a **paying client or customer** who is frustrated, escalating, or waiting on a late deliverable — **override the base urgency and force a floor**. This check runs BEFORE all other scoring.
+
+**Force 🟠 HIGH minimum** (even if the message would otherwise be NORMAL or LOW) when:
+- Message is in a channel/DM identified as a client relationship (client name in channel, ≤5 members, or prior HIGH/URGENT items from same source)
+- Message contains frustration or urgency language (any language):
+  - "unreliable", "not professional", "missing", "wasted", "disappointed", "late", "overdue"
+  - "report nahi aaya", "mil nahi raha", "bahut late ho gaya"
+  - Client says they're blocked: "can't move forward", "need this NOW", "still waiting"
+- A client-facing deliverable (report, update, document, invoice) has been requested and is ≥ 3 days overdue with no response
+
+**Force 🔴 URGENT** when:
+- Client expresses strong dissatisfaction: "core job missing", "unreliable", "reconsidering" (churn risk signal)
+- Client-facing deliverable is ≥ 7 days overdue
+- Client message has received zero response from the team
+
+**Floor rule is absolute:** No client-signal item can be rated below 🟠 HIGH, regardless of channel size, message count, or scoring logic. A missed client task is worse than 10 missed internal tasks.
+
+---
+
 ### Urgency:
-- **URGENT 🔴**: blocking others NOW, deadline today, production issue, CEO/founder urgency
-- **HIGH 🟠**: decision impacts upcoming release, multiple people waiting, commitment overdue
+- **URGENT 🔴**: blocking others NOW, deadline today, production issue, CEO/founder urgency, client churn risk
+- **HIGH 🟠**: decision impacts upcoming release, multiple people waiting, commitment overdue, client frustration signal
 - **NORMAL 🟡**: follow-up this week, peer request with reasonable deadline
 - **LOW ⚪**: nice-to-have, soft acknowledgment, no deadline
 
-### Importance:
+### Importance (generic):
 - +2: sender is CEO / founder / direct manager
 - +1: sender is team lead / senior member
 - +1: impacts product launch, pricing, or external partner
 - +1: more than 2 people waiting
 - −1: user is CC'd but not primary
 
-Final priority = highest tier justified by urgency + importance.
+### 🎯 Role-based boost (personalisation from prefs.json)
+
+On top of the generic score, apply a **+1 boost** when the message aligns with `USER_ROLE` AND contains any `ROLE_KEYWORDS[]`:
+
+| USER_ROLE | What gets boosted (+1) |
+|-----------|------------------------|
+| Founder / CEO | Deals, partnerships, pricing decisions, approvals, external-facing messages, investor/board items, financial commitments |
+| Manager / Team Lead | Team blockers, hiring/performance asks, cross-team coordination, escalations from reports |
+| Developer / Engineer | PR reviews, production incidents, bug escalations, deploy blockers, spec clarifications |
+| Designer / UX | Design reviews, Figma feedback, component decisions, brand approvals |
+| Marketing / Content | Copy approvals, launch timing, title/headline changes, campaign decisions, content reviews |
+| Sales / BD | Deal updates, partner requests, contract asks, quote approvals, intro requests |
+| Customer Success | Escalations, refund asks, churn risks, complaint threads, renewals |
+| QA / Testing | Release blockers, bug verifications, test plan approvals |
+| Product Manager | Spec questions, prioritisation calls, roadmap decisions, scope changes |
+| Operations / Finance / HR | Policy questions, approvals, compliance items, hiring/payroll |
+
+### 🎯 Role-context match (+1 extra)
+
+If the message text contains ANY word from `ROLE_KEYWORDS[]` (extracted from your day-to-day description) → **+1 more**.
+
+Example: If ROLE_CONTEXT = "I approve YouTube titles", and a DM says "sir yeh title confirm karo" — the keyword "title" matches → +1 extra.
+
+### Final score
+
+Final priority tier = base urgency tier → bumped one level UP if (importance_score + role_boosts) ≥ 2, OR if the message crosses multiple boost conditions.
+
+**Floor rule:** Role can only BOOST priority, never lower it below its base tier. Role is a lens, not a veto.
 
 ---
 
@@ -476,6 +622,14 @@ Call `clickup_filter_tasks` on `TASK_BOARD_ID`. Skip creating if same task name 
 
 ### For MODE A (Inbox) items:
 
+**Source link construction (REQUIRED for every task):**
+```
+SOURCE_URL = [if chat message]  https://app.clickup.com/[WORKSPACE_ID]/chat/r/[channel_id]/t/[message_id]
+           = [if task comment]  https://app.clickup.com/t/[task_id]?comment=[comment_id]
+           = [if doc mention]   https://app.clickup.com/[WORKSPACE_ID]/docs/[doc_id]
+```
+This is the 1-click jump back to the original message. **Never omit the source link.**
+
 Call `clickup_create_task`:
 ```
 list_id:   TASK_BOARD_ID
@@ -485,11 +639,12 @@ due_date:  URGENT=today · HIGH=tomorrow · NORMAL=end of week · LOW=next week
 assignees: [MY_USER_ID]
 tags:      ["pickle", "pickle-clickup"]
 description:
-  📍 SOURCE
+  🔗 SOURCE (1-click): [SOURCE_URL]
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  📍 CONTEXT
   From: [sender] | In: [channel name OR task name]
   Type: [chat channel / DM / group DM / task comment / task comment reply]
-  Link: [if chat]    https://app.clickup.com/[WORKSPACE_ID]/chat/r/[channel_id]/t/[message_id]
-        [if comment] https://app.clickup.com/t/[task_id]?comment=[comment_id]
   Date: [human-readable date]
 
   💬 WHAT THEY SAID
@@ -520,6 +675,8 @@ After creating, write the `message_id → task_id` entry into `state.json`.
 **Due date:**
 - `OVERDUE` → today · `DUE_SOON` → deadline date · `PENDING` → today + 1 day · `recurring_stopped` → today
 
+**Source link (REQUIRED):** Use the URL of MY original message (the ask), not their reply.
+
 Call `clickup_create_task`:
 ```
 list_id:   TASK_BOARD_ID
@@ -529,8 +686,10 @@ due_date:  [rules above]
 assignees: [MY_USER_ID]
 tags:      ["pickle", "pickle-clickup", "follow-up"]
 description:
+  🔗 SOURCE (1-click): [SOURCE_URL of my original ask]
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
   📍 WAITING ON: [their name]
-  Thread: https://app.clickup.com/[WORKSPACE_ID]/chat/r/[channel_id]/t/[message_id]
   Asked on: [date] ([days_pending] days ago)
 
   📝 WHAT I ASKED
