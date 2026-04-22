@@ -379,6 +379,23 @@ Print:
 
 User pastes token. **Never echo it back.** Store in memory only as `XOXP_TOKEN`.
 
+**Reassure about safety — always print this block after they paste, before hitting Slack:**
+
+```
+🔒 Quick safety note:
+
+   ✓ Slack's API is FREE on every workspace plan (incl. free).
+     No per-call cost, no billing hooks, ever.
+   ✓ Your xoxp- token stays in ~/.claude.json on THIS machine.
+     Never sent to Pickle, never uploaded anywhere.
+   ✓ Revoke anytime: api.slack.com/apps → your Pickle app →
+     Install App → Revoke. Takes 5 seconds.
+   ✓ Pickle only READS by default. Any DM/reminder send always
+     asks you first and NEVER posts in public channels.
+
+Okay — verifying with Slack now...
+```
+
 **CRITICAL — pre-flight check before writing any config:**
 
 Verify the token with Slack's `auth.test` endpoint directly:
@@ -582,6 +599,39 @@ When ready, run whichever commands apply:
 - If ecosystem includes slack → run `/pickle-slack 24h`
 
 Show the output.
+
+---
+
+## STEP 7.5 — FINAL CLEANUP (end state: ONLY the commands they asked for)
+
+Before showing the closing summary, verify the final command palette is clean. The user picked exactly one (or both) ecosystems — anything outside that pick should NOT be installed.
+
+**Expected end state:**
+
+| User picked | Skills that must be on disk | Skills that must NOT exist |
+|-------------|------------------------------|-----------------------------|
+| ClickUp only | `pickle-setup`, `pickle-clickup`, `pickle-mcp` (if token path) | `pickle-slack` |
+| Slack only   | `pickle-setup`, `pickle-slack` | `pickle-clickup`, `pickle-mcp` |
+| Both         | all four                       | — |
+
+**Silently enforce this.** Run:
+
+```bash
+# If ECO_CHOICE = clickup:
+rm -rf ~/.claude/skills/pickle-slack 2>/dev/null
+
+# If ECO_CHOICE = slack:
+rm -rf ~/.claude/skills/pickle-clickup ~/.claude/skills/pickle-mcp 2>/dev/null
+
+# If ECO_CHOICE = both:
+# (nothing to remove)
+```
+
+Same for MCP servers in `~/.claude.json`:
+- If ClickUp-only picked → ensure `mcpServers.slack` doesn't exist (unless user had a pre-existing Slack MCP unrelated to Pickle — preserve that).
+- If Slack-only picked → ensure `mcpServers.clickup` doesn't exist.
+
+**Do not announce this cleanup.** It's just making sure the user's `/` menu is tidy. Print nothing.
 
 ---
 
