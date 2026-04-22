@@ -526,9 +526,30 @@ If `FOLLOWUP_MODE = false` → show the grouped list in the final report only. D
 
 ## STEP 6 — PRIORITY SCORING
 
+### 🔥 CLIENT RELATIONSHIP SIGNALS — Apply FIRST, before any other scoring
+
+When a message involves a **paying client or customer** who is frustrated, escalating, or waiting on a late deliverable — **override the base urgency and force a floor**. This check runs BEFORE all other scoring.
+
+**Force 🟠 HIGH minimum** (even if the message would otherwise be NORMAL or LOW) when:
+- Message is in a channel/DM identified as a client relationship (client name in channel, ≤5 members, or prior HIGH/URGENT items from same source)
+- Message contains frustration or urgency language (any language):
+  - "unreliable", "not professional", "missing", "wasted", "disappointed", "late", "overdue"
+  - "report nahi aaya", "mil nahi raha", "bahut late ho gaya"
+  - Client says they're blocked: "can't move forward", "need this NOW", "still waiting"
+- A client-facing deliverable (report, update, document, invoice) has been requested and is ≥ 3 days overdue with no response
+
+**Force 🔴 URGENT** when:
+- Client expresses strong dissatisfaction: "core job missing", "unreliable", "reconsidering" (churn risk signal)
+- Client-facing deliverable is ≥ 7 days overdue
+- Client message has received zero response from the team
+
+**Floor rule is absolute:** No client-signal item can be rated below 🟠 HIGH, regardless of channel size, message count, or scoring logic. A missed client task is worse than 10 missed internal tasks.
+
+---
+
 ### Urgency:
-- **URGENT 🔴**: blocking others NOW, deadline today, production issue, CEO/founder urgency
-- **HIGH 🟠**: decision impacts upcoming release, multiple people waiting, commitment overdue
+- **URGENT 🔴**: blocking others NOW, deadline today, production issue, CEO/founder urgency, client churn risk
+- **HIGH 🟠**: decision impacts upcoming release, multiple people waiting, commitment overdue, client frustration signal
 - **NORMAL 🟡**: follow-up this week, peer request with reasonable deadline
 - **LOW ⚪**: nice-to-have, soft acknowledgment, no deadline
 
@@ -601,6 +622,14 @@ Call `clickup_filter_tasks` on `TASK_BOARD_ID`. Skip creating if same task name 
 
 ### For MODE A (Inbox) items:
 
+**Source link construction (REQUIRED for every task):**
+```
+SOURCE_URL = [if chat message]  https://app.clickup.com/[WORKSPACE_ID]/chat/r/[channel_id]/t/[message_id]
+           = [if task comment]  https://app.clickup.com/t/[task_id]?comment=[comment_id]
+           = [if doc mention]   https://app.clickup.com/[WORKSPACE_ID]/docs/[doc_id]
+```
+This is the 1-click jump back to the original message. **Never omit the source link.**
+
 Call `clickup_create_task`:
 ```
 list_id:   TASK_BOARD_ID
@@ -610,11 +639,12 @@ due_date:  URGENT=today · HIGH=tomorrow · NORMAL=end of week · LOW=next week
 assignees: [MY_USER_ID]
 tags:      ["pickle", "pickle-clickup"]
 description:
-  📍 SOURCE
+  🔗 SOURCE (1-click): [SOURCE_URL]
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  📍 CONTEXT
   From: [sender] | In: [channel name OR task name]
   Type: [chat channel / DM / group DM / task comment / task comment reply]
-  Link: [if chat]    https://app.clickup.com/[WORKSPACE_ID]/chat/r/[channel_id]/t/[message_id]
-        [if comment] https://app.clickup.com/t/[task_id]?comment=[comment_id]
   Date: [human-readable date]
 
   💬 WHAT THEY SAID
@@ -645,6 +675,8 @@ After creating, write the `message_id → task_id` entry into `state.json`.
 **Due date:**
 - `OVERDUE` → today · `DUE_SOON` → deadline date · `PENDING` → today + 1 day · `recurring_stopped` → today
 
+**Source link (REQUIRED):** Use the URL of MY original message (the ask), not their reply.
+
 Call `clickup_create_task`:
 ```
 list_id:   TASK_BOARD_ID
@@ -654,8 +686,10 @@ due_date:  [rules above]
 assignees: [MY_USER_ID]
 tags:      ["pickle", "pickle-clickup", "follow-up"]
 description:
+  🔗 SOURCE (1-click): [SOURCE_URL of my original ask]
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
   📍 WAITING ON: [their name]
-  Thread: https://app.clickup.com/[WORKSPACE_ID]/chat/r/[channel_id]/t/[message_id]
   Asked on: [date] ([days_pending] days ago)
 
   📝 WHAT I ASKED

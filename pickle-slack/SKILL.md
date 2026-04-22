@@ -115,23 +115,24 @@ Print: `👤 Running as: $MY_NAME ($MY_USER_ID) in workspace $WORKSPACE_ID`
 **Slack items stay inside Slack.** Destination priority:
 
 1. **Slack Lists (preferred)** — Slack's native task-style database (2024+).
-   - Look for a List named `"Pickle Inbox"` or `"My Pickle"` owned by `MY_USER_ID`.
-   - If not found, create a new private List named `"Pickle Inbox"` with columns:
-     - `Title` (text)
-     - `Type` (select: Inbox · Follow-up)
-     - `Priority` (select: 🔴 Urgent · 🟠 High · 🟡 Normal · ⚪ Low)
-     - `From/To` (text) — sender for Inbox items, recipient for Follow-ups
-     - `Channel` (text)
-     - `Source Link` (link)
-     - `Due` (date)
-     - `Status` (select: Open · Waiting · Done)
-     - `Quote` (text) — exact quote from source message
+   - Use the `slack_list_find_or_create` tool (from `pickle-slack-mcp`) with `name: "Pickle Inbox"`.
+   - This tool finds an existing list OR creates a new private List with the correct columns:
+     - `Title` (text), `Type` (select: Inbox · Follow-up), `Priority` (select: 🔴 Urgent · 🟠 High · 🟡 Normal · ⚪ Low)
+     - `From/To` (text), `Channel` (text), `Source Link` (link — 1-click jump to original message)
+     - `Due` (date), `Status` (select: Open · Waiting · Done), `Quote` (text)
+   - If the tool returns `{ list_id: null, fallback: "self_dm" }`, the Slack Lists API is not available on this plan — proceed to fallback 3.
    - Store `LIST_ID`.
-2. **Canvas fallback** — if Lists API is not exposed by the MCP, use a private Canvas:
+
+2. **Canvas fallback** — if `slack_list_find_or_create` is not available as a tool, use a private Canvas:
    - Look for a Canvas named `"Pickle Inbox"` in the user's DM with themselves, or create one.
    - Append entries as structured bullet blocks (one per item).
    - Store `CANVAS_ID`.
-3. **Plain DM-to-self fallback** — if neither Lists nor Canvas is available, send a single summary DM to the user's own Slack DM channel with the full list formatted with dividers + mrkdwn. Store the DM channel ID.
+
+3. **Plain DM-to-self fallback** — ONLY if Lists AND Canvas are both unavailable.
+   - Use `slack_post_self_dm` to send a single summary DM to the user's own Slack DM channel.
+   - This is the last resort. Always try Lists first.
+
+**⚠️ IMPORTANT: The `pickle-slack-mcp` MCP server MUST be connected (configured at `mcpServers["pickle-slack-mcp"]` in `~/.claude.json`). If `slack_list_find_or_create` is not available as a tool, tell the user to run `/pickle-setup` to configure the MCP.**
 
 Print: `📋 Destination: [Slack List / Canvas / DM-to-self] — [ID] ✓`
 
@@ -170,7 +171,18 @@ For each conversation, use metadata already returned by `conversations.list` plu
 | Channel has 0 messages from me ever AND no @me mention | Deprioritise — scan only if budget allows |
 | Archived (`is_archived: true`) | Already excluded via `exclude_archived` |
 
-**Adaptive budget:** If more than **60 conversations** pass the filter, rank by `latest.ts DESC` + priority flags and scan top 60. Queue the rest if time budget allows.
+**🚨 ANTI-SKIP RULES — NEVER skip based on name or member count alone:**
+
+1. **`latest.ts` is the gate, not the channel name.** Channel names like `hmb-support`, `client-xyz`, `raj-issues` must NOT be skipped because they sound small. If `latest.ts` is within `TIME_CUTOFF_SEC`, scan it.
+2. **Small channels (2–3 members) get PRIORITY treatment**, not deprioritisation. Private 2-person DMs and small support channels are where critical client conversations happen.
+3. **Client relationship channels are ALWAYS scanned.** Detect client context from:
+   - Channel name contains: `support`, `client`, `customer`, `hmb`, `hostmyblog`, `raj`, or any known client/company name
+   - Channel has ≤ 5 members (small = almost certainly important)
+   - Any prior message in `state.json` from this channel was rated HIGH or URGENT
+   If any of these match → mark `is_client_channel: true` and **add to priority queue regardless of other signals**.
+4. **Never skip a channel without first checking `latest.ts`.** The `conversations.list` response always includes `latest.ts`. Read it. If it's within window, scan. Do not use channel name as a filter.
+
+**Adaptive budget:** If more than **60 conversations** pass the filter, rank by `latest.ts DESC` + priority flags (client channels always rank first) and scan top 60. Queue the rest if time budget allows.
 
 Print:
 ```
@@ -435,9 +447,30 @@ If `FOLLOWUP_MODE = false` → show the list in the final report only. Do not as
 
 ## STEP 6 — PRIORITY SCORING
 
+### 🔥 CLIENT RELATIONSHIP SIGNALS — Apply FIRST, before any other scoring
+
+When a message shows that a **paying client or customer** is frustrated, escalating, or waiting on a late deliverable — **override the base urgency and force a floor**. This check runs BEFORE generic urgency scoring.
+
+**Force 🟠 HIGH minimum** (even if the message would otherwise be NORMAL or LOW) when:
+- Sender is from a known client channel (`is_client_channel: true` from Step 3A.1)
+- Message contains frustration language (any language/tone):
+  - "unreliable", "not professional", "missing", "wasted", "disappointed", "not working", "late", "overdue"
+  - "report nahi aaya", "mil nahi raha", "bahut late ho gaya", "yeh kab hoga"
+  - Client explicitly says they're blocked: "can't move forward", "need this NOW", "still waiting"
+- A client-facing deliverable (report, update, document, invoice) was requested and remains unsent after ≥ 3 days
+
+**Force 🔴 URGENT** when:
+- Client has expressed strong dissatisfaction: "core job missing", "unreliable team", "reconsidering" (i.e. churn risk signals)
+- Client-facing deliverable is ≥ 7 days overdue
+- Client message has received zero response from your team
+
+**Floor rule is absolute:** No client-signal item can ever be rated below 🟠 HIGH, regardless of channel size, member count, or noise-filter logic. A missed client task is worse than 10 missed internal tasks.
+
+---
+
 ### Urgency:
-- **URGENT 🔴**: `<!channel>` + my domain, DM marked urgent, deadline today, production/customer issue in my area
-- **HIGH 🟠**: decision blocks release, multiple people waiting, overdue commitment
+- **URGENT 🔴**: `<!channel>` + my domain, DM marked urgent, deadline today, production/customer issue in my area, client churn risk
+- **HIGH 🟠**: decision blocks release, multiple people waiting, overdue commitment, client frustration signal
 - **NORMAL 🟡**: peer request, this-week deadline
 - **LOW ⚪**: soft ask, no deadline
 
@@ -508,49 +541,69 @@ Query the Slack List for existing entries where `Source Link` matches the curren
 
 ## STEP 8 — CREATE ENTRIES + REMINDERS
 
+### Source link construction (required for EVERY entry)
+
+Before creating any entry, construct the permalink for the source message:
+
+```
+WORKSPACE_DOMAIN = [team].slack.com   (from auth.test response, e.g. "posimyth.slack.com")
+TS_NO_DOT        = message ts with the dot removed (e.g. "1776742222.463349" → "1776742222463349")
+PERMALINK        = https://[WORKSPACE_DOMAIN]/archives/[channel_id]/p[TS_NO_DOT]
+```
+
+**Never call `chat.getPermalink` per message** — construct it from channel_id + ts. This saves N API calls per run.
+
+---
+
 ### For MODE A (Inbox) items:
 
-**1. Add a row to the Slack List** (or fallback Canvas/DM):
+**1. Add a row to the Slack List** — call `slack_list_item_add` tool (from `pickle-slack-mcp`):
 ```
-Title:       [action verb] + [description] (max 80)
-Type:        Inbox
-Priority:    🔴 Urgent / 🟠 High / 🟡 Normal / ⚪ Low
-From/To:     @[sender name]
-Channel:     #[channel] or DM
-Source Link: [permalink]
-Due:         URGENT=today · HIGH=tomorrow · NORMAL=end of week · LOW=next week
-Status:      Open
-Quote:       "[exact 1-3 sentence quote]"
+list_id:     LIST_ID
+title:       [action verb] + [description] (max 80 chars)
+item_type:   "Inbox"
+priority:    "🔴 Urgent" | "🟠 High" | "🟡 Normal" | "⚪ Low"
+from_to:     "@[sender display name]"
+channel:     "#[channel name]" or "DM: [name]"
+source_link: PERMALINK  ← 1-click jump back to the original message (REQUIRED — never omit)
+due:         URGENT="Today" · HIGH="Tomorrow" · NORMAL="[end of week date]" · LOW="[next week date]"
+status:      "Open"
+quote:       "[exact 1–3 sentence quote from the message, max 500 chars]"
 ```
 
-**2. Set a Slack reminder** for yourself via `reminders.add`:
-- `text`: `🥒 Pickle: [title] — [permalink]`
-- `time`: matches `Due` date
-- `user`: `MY_USER_ID` (reminder to self)
+**2. Set a Slack reminder** — call `slack_reminder_add` tool (from `pickle-slack-mcp`):
+```
+text:    "🥒 Pickle: [title] — [PERMALINK]"
+time:    Unix timestamp matching the Due date (e.g. today 9am = today_epoch)
+user_id: MY_USER_ID
+```
 
-**3. Write state** — record `channel_id:ts → list_entry_id + reminder_id` in `state.json`.
+**3. Write state** — record `channel_id:ts → { list_entry_id, reminder_id }` in `state.json`.
+
+---
 
 ### For MODE B (Follow-up) items:
 
-**Priority & Due**:
+**Priority & Due:**
 - `OVERDUE` / `escalation_needed` / `recurring_stopped` → 🟠 High, due today
 - `acknowledged_not_delivered` / `DUE_SOON` → 🟡 Normal, due deadline / tomorrow
 - `no_reply` < 2 days → 🟡 Normal, due today + 1
 
-**Add Slack List row:**
+**Call `slack_list_item_add`:**
 ```
-Title:       Follow up → @[recipient]: [what was asked] (max 80)
-Type:        Follow-up
-Priority:    [above]
-From/To:     @[recipient]
-Channel:     #[channel] or DM
-Source Link: [permalink to my original message]
-Due:         [above]
-Status:      Waiting (no_reply / acknowledged_not_delivered / recurring_stopped / OVERDUE / escalation_needed)
-Quote:       "[my original message quote]"
+list_id:     LIST_ID
+title:       "Follow up → @[recipient]: [what was asked]" (max 80 chars)
+item_type:   "Follow-up"
+priority:    [above]
+from_to:     "@[recipient display name]"
+channel:     "#[channel name]" or "DM: [name]"
+source_link: PERMALINK  ← permalink to MY original message where I made the ask (REQUIRED)
+due:         [above]
+status:      "Waiting"
+quote:       "[my original message, max 500 chars]"
 ```
 
-Plus a Slack reminder to self for the due date.
+Plus `slack_reminder_add` for the due date (same pattern as Mode A).
 
 ---
 
