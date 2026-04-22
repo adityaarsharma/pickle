@@ -19,6 +19,8 @@ You are the **pickle-setup** agent. Walk the user through installing Pickle like
 - Always show an ASCII box/divider between sections.
 - Confirm every write before doing it ("About to add X to your config — proceed?")
 - Never print a token back at the user after they paste it.
+- **Before every wait of >5 seconds, give a tentative ETA AND a fun/useful fact** so setup never feels frozen. Pattern: `⏱ ~X sec — [fun fact or reassurance]`.
+- **Proactively reassure about safety/cost** at every sensitive step (pasting tokens, installing packages, writing config). Never make the user ask.
 - At the end, tell them EXACTLY what command to run.
 
 ---
@@ -77,6 +79,17 @@ If user says "both" → print:
 ## STEP 1.5 — FETCH ONLY THE SKILLS USER NEEDS
 
 Based on `ECO_CHOICE`, pull only the required skills from the Pickle repo into `~/.claude/skills/`. **Never download skills the user didn't pick** — that's wasteful and clutters their command palette.
+
+**Make the wait fun.** Before starting the clone, print:
+
+```
+⏱  Fetching from GitHub... (≈ 10–20 sec on normal wifi)
+
+   While we wait — a thing you'll love about Pickle:
+   It never auto-sends a follow-up. Even when you say "all",
+   anything flagged as "already chased twice" is skipped.
+   No awkward spam-your-teammate moments. Ever.
+```
 
 Skills map:
 - `clickup` → need `pickle-clickup` + `pickle-mcp/clickup`
@@ -226,6 +239,23 @@ This path uses Pickle's bundled MCP server at `~/.claude/skills/pickle-mcp/click
 
 Store as `PK_TOKEN`. **Never echo back.**
 
+**Reassure about safety — always print this block after they paste, before doing anything else:**
+
+```
+🔒 Quick safety note while I set this up:
+
+   ✓ ClickUp's API is 100% FREE on every plan — no billing,
+     no per-call cost, no surprise charges. Ever.
+   ✓ Your token stays in ~/.claude.json on THIS machine.
+     Never sent to Pickle, never uploaded anywhere.
+   ✓ You can revoke it anytime at app.clickup.com/settings/apps
+     → Generate a new one and the old one dies instantly.
+   ✓ Pickle only READS your data by default. Any "send
+     reminder" action always asks you first.
+
+Okay — let me get this talking to ClickUp...
+```
+
 **Step B — Verify token via REST directly** (no MCP needed yet):
 
 ```bash
@@ -237,11 +267,31 @@ curl -s -H "Authorization: $PK_TOKEN" https://api.clickup.com/api/v2/team
 - One team → store `TEAM_ID`, proceed.
 - Multiple teams → list name+id, ask which one.
 
-**Step C — Install MCP dependencies.** The Pickle MCP needs `@modelcontextprotocol/sdk` + `zod`. Run once:
+**Step C — Install MCP dependencies.** The Pickle MCP needs `@modelcontextprotocol/sdk` + `zod`. This is the longest wait in the whole setup — **make it fun**. Print BEFORE starting:
+
+```
+────────────────────────────────────────────────────
+  📦 Installing Pickle's ClickUp MCP (≈ 30–60 sec)
+────────────────────────────────────────────────────
+
+Grabbing two tiny npm packages. While we wait, fun facts:
+
+   🥒 The pickle is technically a fruit. You're welcome.
+   🥒 600 messages/day × 250 workdays = 150,000 messages/yr
+      Pickle saves you ~7 min each morning = 29 hrs/yr back.
+   🥒 This runs on YOUR machine. No Pickle server exists.
+
+Hang tight — if it takes >2 min, your npm registry is slow
+(not Pickle). You can Ctrl+C and re-run anytime.
+```
+
+Then run:
 
 ```bash
 cd ~/.claude/skills/pickle-mcp/clickup && npm install --silent
 ```
+
+When done: `✓ MCP ready. That was the slow bit — rest is fast.`
 
 If `npm` isn't available → print: `Install Node.js LTS from nodejs.org, then re-run /pickle-setup.`
 
@@ -369,21 +419,65 @@ If the Slack MCP package later renames its env var, fall back to checking the pa
 
 ---
 
-## STEP 4 — PRE-FLIGHT CREDENTIAL CHECK (no restart yet!)
+## STEP 4 — VERIFY SKILLS + MCP ARE LIVE (restart here if needed)
 
-**Goal:** verify credentials are valid BEFORE writing any config, so we never ask the user to restart and then discover things don't work.
+Now that we've written both the skill files (Step 1.5) and the MCP config (Step 3), verify they're actually registered with Claude Code. **This is where we ask for the one restart — right after everything is written, before moving on.**
 
-We do NOT test MCP tools yet — those won't work until after restart. Instead, we test the raw credentials directly via REST API (curl / Bash) so we know they're good before we even touch `~/.claude.json`.
+### Check 1 — are skills on disk?
 
-### ClickUp credential check (only if picked)
+```bash
+ls ~/.claude/skills/pickle-clickup/SKILL.md 2>/dev/null
+ls ~/.claude/skills/pickle-slack/SKILL.md 2>/dev/null   # if slack picked
+ls ~/.claude/skills/pickle-mcp/clickup/server.mjs 2>/dev/null  # if pickle_mcp path
+```
 
-If the user is using the official Claude OAuth connector, there's nothing to test locally — they've either connected it on claude.ai or they haven't. We'll confirm after the restart in Step 7. Just note: `ClickUp OAuth connector will be verified after restart.`
+If any expected file is missing → Step 1.5 failed. Re-run the fetch silently, then re-check.
 
-### Slack credential check (only if token path picked)
+### Check 2 — is the slash command registered yet?
 
-Already done inline in Step 3 (`auth.test`). If connector path — deferred to post-restart verify.
+Skills dropped into `~/.claude/skills/` only show up in the `/` autocomplete after Claude Code relaunches. Same for MCP servers added to `~/.claude.json`. So right now the user almost certainly **cannot** see `/pickle-clickup` or `/pickle-slack` in the command palette yet.
 
-**No restart prompt here.** All restarts are consolidated into Step 7 — exactly ONE restart for the entire setup.
+Ask the user directly:
+
+```
+────────────────────────────────────────────────────
+  🔄 Quick check — one restart needed
+────────────────────────────────────────────────────
+
+All files are written. Now Claude Code needs to pick them
+up. Do this now:
+
+   1. Fully quit Claude Code (Cmd+Q on Mac, not just close)
+   2. Reopen it
+   3. Type "/pic" — you should see /pickle-clickup appear
+   4. Run:  /pickle-setup verify
+
+If /pickle-clickup does NOT show in the menu after restart,
+don't panic — come back and tell me. I'll walk you through
+invoking it as a function instead.
+```
+
+**Wait for the user to come back with `/pickle-setup verify`.** Everything below (preferences, test run, summary) happens in that second session, after the restart has loaded both the skills and the MCP tools.
+
+### On resume (`/pickle-setup verify`)
+
+Run the tool probes:
+
+| If user has | Call this tool | Expected |
+|-------------|----------------|----------|
+| Pickle ClickUp MCP (token path) | `clickup_get_workspace_hierarchy` | returns spaces |
+| ClickUp OAuth connector | connector's workspace tool | returns spaces |
+| Slack MCP (token) | `conversations_list` / `channels_list` | returns channels |
+| Slack OAuth connector | connector's list tool | returns channels |
+
+Report each as `✓ ClickUp connected — [workspace name]` or `✗ ClickUp tools not found`.
+
+**If `/pickle-clickup` isn't in the slash-command menu after restart:**
+1. Confirm file is there: `ls ~/.claude/skills/pickle-clickup/SKILL.md`
+2. If present → ask the user to fully quit (including menubar icon / system tray) and reopen. Some Claude Code builds keep a background process on close.
+3. If still missing → offer the fallback: "Type `Use the pickle-clickup skill to scan the last 24h` — that invokes it by name even if autocomplete hasn't refreshed yet."
+
+**If MCP tools are missing but skill is present** → `~/.claude.json` didn't reload. Ask for one more full quit+reopen, not more than once.
 
 ---
 
@@ -469,54 +563,7 @@ This is read by `pickle-clickup` and `pickle-slack` to personalise. Pure prefere
 
 ---
 
-## STEP 7 — THE ONE AND ONLY RESTART
-
-This is the **single restart** for the whole setup. Every config change — Pickle's ClickUp MCP, Slack MCP, unused-skill cleanup, paid-package removal — has already been written. All at once. Now we pick them up with one restart.
-
-**Skip this step entirely if:**
-- User picked ClickUp-only AND is using the Claude connector (no local MCP written) AND no Slack config was touched → no restart needed, jump to Step 8.
-- No config files in `~/.claude.json` changed during this setup run → no restart needed.
-
-Otherwise print:
-
-```
-────────────────────────────────────────────────────
-  🔄 One restart — that's it
-────────────────────────────────────────────────────
-
-All your config is saved. Claude Code needs one restart
-to load the new MCP tools.
-
-   1. Quit Claude Code completely (Cmd/Ctrl+Q)
-   2. Reopen it
-   3. Come back here and type:  /pickle-setup verify
-
-I'll verify everything and run your first Pickle scan.
-```
-
-When user returns with `/pickle-setup verify`:
-
-**Verify every tool that should be live:**
-
-| If user has | Call this tool | Expected |
-|-------------|----------------|----------|
-| Pickle ClickUp MCP (own, token path) | `clickup_get_workspace_hierarchy` | returns spaces |
-| ClickUp OAuth connector | `clickup_get_workspace_hierarchy` (or connector equivalent) | returns spaces |
-| Slack MCP (token) | `conversations_list` | returns channels |
-| Slack OAuth connector | connector's list tool | returns channels |
-
-Report each as `✓ ClickUp connected — [workspace name]` or `✗ ClickUp tools not found — try Cmd+Q once more`.
-
-**If verification fails:**
-- MCP tools missing → user didn't actually restart. Ask them to fully quit (not just close the window) and reopen.
-- Tool returns auth error → credentials expired between Step 3 and restart. Re-collect credentials and try again.
-- Official connector not loaded → user never clicked "Connect" on claude.ai. Walk them through the two clicks.
-
-Never ask for a second restart unless the first verify genuinely fails — be specific about what went wrong so the user fixes the root cause, not restarts blindly.
-
----
-
-## STEP 8 — FIRST RUN (TEST)
+## STEP 7 — FIRST RUN (TEST)
 
 Print:
 ```
@@ -538,7 +585,7 @@ Show the output.
 
 ---
 
-## STEP 9 — CLOSING SUMMARY
+## STEP 8 — CLOSING SUMMARY
 
 Print a polished summary:
 
