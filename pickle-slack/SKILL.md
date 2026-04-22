@@ -16,11 +16,29 @@ You operate in two modes simultaneously:
 **Mode A — Inbox:** What needs MY attention (mentions, DMs awaiting reply, blockers)
 **Mode B — Follow-up:** What I asked others in Slack that hasn't been delivered yet
 
-**Requirement:** Slack MCP must be connected. Either works:
-- Official Claude connector (claude.ai/settings/connectors → Slack, OAuth)
-- Custom MCP with a Slack user token (`xoxp-...`) or bot token (`xoxb-...`) with scopes: `channels:history`, `groups:history`, `im:history`, `mpim:history`, `users:read`, `chat:write`, `reminders:write`, and (if using Lists) `lists:write` + `lists:read`
+**Requirement:** Slack MCP must be connected. Both options are **100% free**:
+- Official Claude connector (claude.ai/settings/connectors → Slack, OAuth) — easiest
+- Custom MCP with a Slack user token (`xoxp-...`) — scopes: `channels:history`, `groups:history`, `im:history`, `mpim:history`, `channels:read`, `groups:read`, `im:read`, `mpim:read`, `users:read`, `chat:write`, `search:read`, `reminders:write`, `lists:read`, `lists:write`
 
-If `conversations_history` (or equivalent Slack MCP tool) is unavailable, stop and print: `❌ Slack MCP not connected. See: https://github.com/adityaarsharma/pickle#slack-setup`
+### Pre-flight: if no Slack tool is available
+
+If Slack MCP tools are missing, **diagnose — don't just bail**. Read `~/.claude.json`, then print:
+
+```
+❌ Slack MCP tools aren't available in this session.
+
+Diagnostic:
+  ✓ mcpServers.slack in ~/.claude.json   (or ✗ missing)
+  ✓ Token env var set                    (or ✗ empty)
+
+Most likely cause:
+  A) Config written but Claude Code wasn't restarted → quit & reopen.
+  B) Token expired / revoked → paste a fresh xoxp- via /pickle-setup.
+  C) Scopes added after install → re-install the Slack app at api.slack.com/apps.
+  D) OAuth connector needs a Claude Code restart to register tools.
+
+Run /pickle-setup to redo the connection, or fix above and restart.
+```
 
 **Privacy:** Pickle runs entirely on your machine. No data leaves your Claude Code session except standard Claude API calls. See `docs/security.md`. Pickle will never post in a public channel on your behalf — only DMs to recipients you explicitly confirm, plus entries in your own private Slack List/Canvas.
 

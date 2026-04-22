@@ -5,6 +5,7 @@
 ### *In a pickle? Pickle sorts it.*
 
 **Every morning, 600 messages. 15 actually need you. Pickle finds them.**
+**100% free. Runs locally. No server, no subscription, no license keys.**
 
 [![Version](https://img.shields.io/badge/version-1.0-blue?style=flat-square)](https://github.com/adityaarsharma/pickle)
 [![Claude Code](https://img.shields.io/badge/runs%20in-Claude%20Code-orange?style=flat-square)](https://claude.ai/download)
@@ -85,17 +86,13 @@ Paste this into Claude Code:
 
 ```
 Install Pickle from https://github.com/adityaarsharma/pickle — clone the repo,
-copy every folder inside into ~/.claude/skills/, then restart Claude Code and
-run /pickle-setup.
+then copy every folder inside (pickle-setup, pickle-clickup, pickle-slack,
+pickle-mcp) into ~/.claude/skills/. Then run /pickle-setup.
 ```
 
-Claude Code handles the rest. When you restart, run:
+Claude Code does the copy. The wizard handles everything else — asks your name, asks Slack/ClickUp/both, walks you through connecting, verifies, asks your preferences, runs one restart only when actually needed, and tells you exactly what to run next. ~3 minutes.
 
-```
-/pickle-setup
-```
-
-That's the whole install. The setup wizard takes it from there — asks your name, asks whether you want Slack, ClickUp, or both, walks you through connecting (OAuth or API token — your call), verifies, asks your preferences, tells you exactly what command to run. ~3 minutes, one question at a time, zero docs to read.
+**100% free.** Pickle ships its own open-source ClickUp MCP (`pickle-mcp/clickup/`) — no paid dependencies, no license keys, no rate limits. Slack uses the official free OAuth connector or your own free Slack app — your choice.
 
 ---
 

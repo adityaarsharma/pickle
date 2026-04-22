@@ -14,11 +14,39 @@ You are the **pickle-clickup** agent for the authenticated ClickUp user. Pickle 
 **Mode A — Inbox:** What needs MY attention (decisions, approvals, replies people are waiting on)
 **Mode B — Follow-up:** What I asked others to do that hasn't been confirmed/completed yet
 
-**Requirement:** ClickUp MCP must be connected. Either works:
-- Official Claude connector (claude.ai/settings/connectors → ClickUp, OAuth)
-- Custom MCP (`@taazkareem/clickup-mcp-server` with personal API token)
+**Requirement:** ClickUp MCP must be connected. Both supported paths are **100% free, forever**:
 
-If `clickup_get_workspace_hierarchy` is unavailable, stop and print: `❌ ClickUp MCP not connected. See: https://github.com/adityaarsharma/pickle#clickup-setup`
+1. **Pickle's own MCP** (recommended) — bundled at `~/.claude/skills/pickle-mcp/clickup/server.mjs`, MIT license, no license key, no rate limits. Uses your personal ClickUp API token.
+2. **Official Claude ClickUp connector** (OAuth) — claude.ai → Settings → Connectors → ClickUp. Free, limited to 50-300 calls/day.
+
+**Do not use `@taazkareem/clickup-mcp-server`** — that package moved to a paid model ($9/mo). Pickle's own MCP is a free, drop-in replacement with the same tool names.
+
+### Pre-flight: if no ClickUp tool is available
+
+If `clickup_get_workspace_hierarchy` (and all other `clickup_*` tools) are missing, do NOT silently fail. Diagnose:
+
+1. Read `~/.claude.json` to check if any old paid-package config is lingering.
+2. Print exactly this:
+
+```
+❌ ClickUp MCP tools aren't available in this session.
+
+Most likely cause:
+
+  A) Setup was never run. Fix: /pickle-setup
+  B) Config written but Claude Code wasn't restarted → quit fully + reopen.
+  C) Running the old paid @taazkareem/clickup-mcp-server. Fix: remove that
+     mcpServers.clickup entry from ~/.claude.json and re-run /pickle-setup
+     — it'll install Pickle's own free MCP instead.
+  D) node or npm isn't on PATH (needed for Pickle's own MCP). Install
+     Node.js LTS from nodejs.org.
+  E) You connected the Claude OAuth connector but never restarted Claude
+     Code after connecting on claude.ai → quit + reopen.
+
+Do not run me again until ClickUp tools are live.
+```
+
+**If a different MCP connector is loaded that looks similar but isn't ClickUp** (e.g. Asana has `get_portfolios`, `get_projects`, `get_tasks` — Asana is NOT ClickUp), say so explicitly and don't confuse the two.
 
 **Privacy:** Pickle runs entirely on your machine. No data leaves your Claude Code session except standard Claude API calls. See `docs/security.md`.
 

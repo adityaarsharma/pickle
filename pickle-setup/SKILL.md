@@ -80,29 +80,44 @@ For each ecosystem the user picked, ask:
 
 ### For ClickUp
 
-Print:
+Two free paths — let the user pick:
+
 ```
 ────────────────────────────────────────────────────
-  🔵 ClickUp — how do you want to connect?
+  🔵 ClickUp — how do you want to connect? (both free)
 ────────────────────────────────────────────────────
 
-  [1] Official Claude connector (easiest, 2 clicks)
-      → Best if you use Claude on your own account
-      → ⚠ If you share your Claude account with teammates,
-        everyone will see the same ClickUp data
+  [1] Pickle's own MCP + your ClickUp API token (recommended)
+      → 100% free, runs locally, full feature set
+      → Best for teams sharing a Claude account (full isolation)
+      → Takes 30s (paste one token)
 
-  [2] Your own ClickUp API token (full isolation)
-      → Best for teams sharing a Claude account
-      → Takes 30 seconds to generate
+  [2] Official Claude ClickUp connector (OAuth)
+      → 2 clicks on claude.ai
+      → Free but rate-limited (50-300 calls/day)
+      → ⚠ Shared Claude accounts = shared ClickUp data
 
   👉 Reply 1 or 2
 ```
 
-Store as `CLICKUP_AUTH` (`connector` or `token`).
+Store as `CLICKUP_AUTH` (`pickle_mcp` or `connector`). Default recommendation is `pickle_mcp` since it's fully free with no rate limits and uses our own open-source MCP — no paid dependency, no license key, ever.
 
 ### For Slack
 
-(Only if they picked Slack or Both.) Same pattern — ask `connector` vs `token`, store as `SLACK_AUTH`.
+(Only if they picked Slack or Both.) Two free options — ask which:
+
+```
+────────────────────────────────────────────────────
+  💬 Slack — how do you want to connect? (both free)
+────────────────────────────────────────────────────
+
+  [1] Official Claude Slack connector (2 clicks, OAuth)
+  [2] Your own Slack app + user token (full isolation)
+
+  👉 Reply 1 or 2
+```
+
+Store as `SLACK_AUTH` (`connector` or `token`). Both paths are free.
 
 ---
 
@@ -127,9 +142,26 @@ Tell me when you're done.
 
 Wait for confirmation. Then → STEP 4 verification.
 
-### If `CLICKUP_AUTH = token`:
+### Cleanup paid-package leftovers (always run this)
 
-Print the visual token guide:
+Before proceeding with either path, read `~/.claude.json`. If you find `mcpServers.clickup` pointing to `@taazkareem/clickup-mcp-server` (any version), **remove it** — that package is now paid and will block with a license prompt. Say:
+
+```
+⚠ Found a paid ClickUp MCP (@taazkareem/clickup-mcp-server) in your config.
+  I'll remove it — Pickle's own free MCP covers everything it was doing.
+  Proceed? (yes/no)
+```
+
+On yes, delete that entry from `mcpServers` (preserve all other MCP servers).
+
+---
+
+### If `CLICKUP_AUTH = pickle_mcp` — Pickle's own free MCP
+
+This path uses Pickle's bundled MCP server at `~/.claude/skills/pickle-mcp/clickup/server.mjs` — free forever, open source, no license keys.
+
+**Step A — Get the ClickUp API token.** Print:
+
 ```
 ────────────────────────────────────────────────────
   🔵 ClickUp API Token — 30 seconds
@@ -138,43 +170,75 @@ Print the visual token guide:
   Fastest: open this URL while logged in →
       https://app.clickup.com/settings/apps
 
-  Or do it manually:
-    1. Open app.clickup.com
-    2. Click your avatar (top-right corner)
-    3. Settings → in the left sidebar click "Apps"
-       (in some ClickUp versions this is labelled
-        "Integrations" — same page)
-    4. Find the "API Token" section → click Generate
-       (If you already have one, Regenerate works too)
-    5. Copy the token — starts with pk_xxxxxxxxxxxxxxxx
+  Or manually:
+    1. app.clickup.com → avatar (top-right) → Settings
+    2. Left sidebar → "Apps" (may show as "Integrations")
+    3. Find "API Token" → Generate (or Regenerate)
+    4. Copy the token — starts with pk_xxxxxxxxxxxxxxxx
 
 👉 Paste your pk_ token below. (I'll never show it back.)
 ```
 
-User pastes token. **Never echo it back.** Store in memory only.
+Store as `PK_TOKEN`. **Never echo back.**
 
-Say:
-```
-✓ Got it. About to write this to ~/.claude.json under
-  mcpServers as @taazkareem/clickup-mcp-server — proceed?
+**Step B — Verify token via REST directly** (no MCP needed yet):
+
+```bash
+curl -s -H "Authorization: $PK_TOKEN" https://api.clickup.com/api/v2/team
 ```
 
-Wait for yes. Then write to `~/.claude.json`:
+- HTTP 401 / `OAUTH_027` → bad token, re-prompt.
+- Empty `teams` → account has no workspaces.
+- One team → store `TEAM_ID`, proceed.
+- Multiple teams → list name+id, ask which one.
+
+**Step C — Install MCP dependencies.** The Pickle MCP needs `@modelcontextprotocol/sdk` + `zod`. Run once:
+
+```bash
+cd ~/.claude/skills/pickle-mcp/clickup && npm install --silent
+```
+
+If `npm` isn't available → print: `Install Node.js LTS from nodejs.org, then re-run /pickle-setup.`
+
+**Step D — Write config.** Merge (never overwrite) into `~/.claude.json`:
+
 ```json
 {
   "mcpServers": {
     "clickup": {
-      "command": "npx",
-      "args": ["-y", "@taazkareem/clickup-mcp-server"],
+      "command": "node",
+      "args": ["<HOME>/.claude/skills/pickle-mcp/clickup/server.mjs"],
       "env": {
-        "CLICKUP_API_TOKEN": "<pasted token>"
+        "CLICKUP_API_KEY": "<PK_TOKEN>",
+        "CLICKUP_TEAM_ID": "<TEAM_ID>"
       }
     }
   }
 }
 ```
 
-Merge into existing `mcpServers` — don't overwrite other servers.
+Replace `<HOME>` with the user's actual home directory (e.g. `/Users/aditya`). No `npx`, no license key, no paid dep.
+
+Confirm: `✓ Pickle ClickUp MCP configured for workspace "[NAME]".`
+
+---
+
+### If `CLICKUP_AUTH = connector` — Official Claude connector
+
+No local config to write. Just tell the user:
+
+```
+────────────────────────────────────────────────────
+  🔵 ClickUp via Claude Connector
+────────────────────────────────────────────────────
+
+  1. Open claude.ai → Settings → Connectors
+  2. Find "ClickUp" → Connect → approve
+
+Tell me when done (reply "ok").
+```
+
+Wait for confirmation. Nothing gets written to `~/.claude.json`.
 
 ### If `SLACK_AUTH = connector`:
 
@@ -218,43 +282,63 @@ Print:
 👉 Paste your xoxp- token below. (I'll never show it back.)
 ```
 
-Wait for token. Write to `~/.claude.json` under a Slack MCP server entry. Never echo it.
+User pastes token. **Never echo it back.** Store in memory only as `XOXP_TOKEN`.
+
+**CRITICAL — pre-flight check before writing any config:**
+
+Verify the token with Slack's `auth.test` endpoint directly:
+
+```bash
+curl -s -H "Authorization: Bearer $XOXP_TOKEN" https://slack.com/api/auth.test
+```
+
+Parse `ok`, `user`, `team`, `user_id`, `team_id` from the JSON.
+
+- **`ok: false` with `invalid_auth` / `token_expired`** → ask user to paste a fresh token. Do NOT write config.
+- **`ok: false` with `missing_scope`** → print exactly which scopes are missing (from the `needed` field), ask user to go back to api.slack.com/apps, add them, re-install the app, and paste the new token.
+- **`ok: true`** → store `SLACK_TEAM_ID`, `SLACK_USER_ID`, `SLACK_TEAM_NAME` and proceed.
+
+Once verified, say:
+```
+✓ Token works. Connected as [USER] in workspace "[TEAM]".
+  About to add a Slack MCP server to ~/.claude.json — proceed?
+```
+
+Wait for yes. Merge into the existing `mcpServers` object (read first, never overwrite other entries). Current recommended Slack MCP: `korotovsky/slack-mcp-server` (stdio, reads user token, supports channels/DMs/lists/reminders).
+
+```json
+{
+  "mcpServers": {
+    "slack": {
+      "command": "npx",
+      "args": ["-y", "slack-mcp-server@latest", "--transport", "stdio"],
+      "env": {
+        "SLACK_MCP_XOXP_TOKEN": "<XOXP_TOKEN>"
+      }
+    }
+  }
+}
+```
+
+If the Slack MCP package later renames its env var, fall back to checking the package's README before writing — do not guess.
 
 ---
 
-## STEP 4 — VERIFY CONNECTION
+## STEP 4 — PRE-FLIGHT CREDENTIAL CHECK (no restart yet!)
 
-### For ClickUp:
+**Goal:** verify credentials are valid BEFORE writing any config, so we never ask the user to restart and then discover things don't work.
 
-Call `clickup_get_workspace_hierarchy` (if token) or the connector equivalent. If it returns data:
-```
-✓ ClickUp connected. I can see [N] spaces in [workspace name].
-```
+We do NOT test MCP tools yet — those won't work until after restart. Instead, we test the raw credentials directly via REST API (curl / Bash) so we know they're good before we even touch `~/.claude.json`.
 
-If it fails:
-```
-✗ ClickUp didn't respond. Common fixes:
-  • Restart Claude Code (the new MCP server needs to boot)
-  • Check you copied the full pk_ token
-  • Try again with: /pickle-setup
-```
+### ClickUp credential check (only if picked)
 
-### For Slack:
+If the user is using the official Claude OAuth connector, there's nothing to test locally — they've either connected it on claude.ai or they haven't. We'll confirm after the restart in Step 7. Just note: `ClickUp OAuth connector will be verified after restart.`
 
-Call the Slack MCP's `auth.test` equivalent or `conversations_list`. If it works:
-```
-✓ Slack connected. I can see [N] channels + [N] DMs in [workspace name].
-```
+### Slack credential check (only if token path picked)
 
-If it fails → same fallback as above with Slack-specific hints (`missing_scope` etc).
+Already done inline in Step 3 (`auth.test`). If connector path — deferred to post-restart verify.
 
-**Note:** If this is the first time setup ran AND MCP was just written to config, Claude Code needs a restart to load the new server. Print:
-```
-⚠ Heads-up: your new MCP server won't be active until you
-  restart Claude Code. Quit and reopen it now — I'll wait.
-```
-
-Wait for confirmation, then re-test.
+**No restart prompt here.** All restarts are consolidated into Step 7 — exactly ONE restart for the entire setup.
 
 ---
 
@@ -340,24 +424,50 @@ This is read by `pickle-clickup` and `pickle-slack` to personalise. Pure prefere
 
 ---
 
-## STEP 7 — RESTART CHECK
+## STEP 7 — THE ONE AND ONLY RESTART
 
-Print:
+This is the **single restart** for the whole setup. Every config change — Pickle's ClickUp MCP, Slack MCP, unused-skill cleanup, paid-package removal — has already been written. All at once. Now we pick them up with one restart.
+
+**Skip this step entirely if:**
+- User picked ClickUp-only AND is using the Claude connector (no local MCP written) AND no Slack config was touched → no restart needed, jump to Step 8.
+- No config files in `~/.claude.json` changed during this setup run → no restart needed.
+
+Otherwise print:
+
 ```
 ────────────────────────────────────────────────────
-  🔄 Restart check
+  🔄 One restart — that's it
 ────────────────────────────────────────────────────
 
-If I wrote any new MCP server to your config today, please
-fully quit Claude Code and reopen it once. The new tools
-won't be callable until then.
+All your config is saved. Claude Code needs one restart
+to load the new MCP tools.
 
-If you already restarted — just reply "done".
-If you haven't — close Claude Code now, reopen, then come
-back and type /pickle-setup verify.
+   1. Quit Claude Code completely (Cmd/Ctrl+Q)
+   2. Reopen it
+   3. Come back here and type:  /pickle-setup verify
+
+I'll verify everything and run your first Pickle scan.
 ```
 
-If user says `/pickle-setup verify` (or "done"), re-run the Step 4 verify and confirm everything is live.
+When user returns with `/pickle-setup verify`:
+
+**Verify every tool that should be live:**
+
+| If user has | Call this tool | Expected |
+|-------------|----------------|----------|
+| Pickle ClickUp MCP (own, token path) | `clickup_get_workspace_hierarchy` | returns spaces |
+| ClickUp OAuth connector | `clickup_get_workspace_hierarchy` (or connector equivalent) | returns spaces |
+| Slack MCP (token) | `conversations_list` | returns channels |
+| Slack OAuth connector | connector's list tool | returns channels |
+
+Report each as `✓ ClickUp connected — [workspace name]` or `✗ ClickUp tools not found — try Cmd+Q once more`.
+
+**If verification fails:**
+- MCP tools missing → user didn't actually restart. Ask them to fully quit (not just close the window) and reopen.
+- Tool returns auth error → credentials expired between Step 3 and restart. Re-collect credentials and try again.
+- Official connector not loaded → user never clicked "Connect" on claude.ai. Walk them through the two clicks.
+
+Never ask for a second restart unless the first verify genuinely fails — be specific about what went wrong so the user fixes the root cause, not restarts blindly.
 
 ---
 
@@ -383,6 +493,49 @@ Show the output.
 
 ---
 
+## STEP 8.5 — CLEAN UP UNUSED SKILLS
+
+**Based on `ECO_CHOICE`, delete the skill folder the user won't use** so the unused slash command doesn't show up in autocomplete.
+
+Print:
+```
+────────────────────────────────────────────────────
+  🧹 Tidy up
+────────────────────────────────────────────────────
+
+You picked [ClickUp only / Slack only / Both].
+
+[If clickup only]
+  I'll remove the Slack skill so /pickle-slack doesn't clutter
+  your command list. You can always re-add it later by running
+  /pickle-setup again and picking Slack.
+
+[If slack only]
+  I'll remove the ClickUp skill so /pickle-clickup doesn't clutter
+  your command list. You can always re-add it later.
+
+[If both]
+  Keeping both — nothing to clean up.
+
+  👉 Proceed? (yes/no)
+```
+
+If yes:
+
+- `ECO_CHOICE = clickup` → delete `~/.claude/skills/pickle-slack/` (use `rm -rf`). Also, if `~/.claude.json` has a `slack` MCP server entry that **you** wrote earlier in this setup, remove it from the config (merge-preserve other servers).
+- `ECO_CHOICE = slack` → delete `~/.claude/skills/pickle-clickup/` and remove the `clickup` MCP server entry.
+- `ECO_CHOICE = both` → skip.
+
+**Never delete `pickle-setup/` itself** — the user might re-run it. **Never delete MCP servers you didn't create** (look at Pickle's prefs.json to track which ones Pickle added).
+
+Confirm once done:
+```
+✓ Removed pickle-[slack/clickup] skill folder.
+✓ Removed unused [slack/clickup] MCP server from config.
+```
+
+---
+
 ## STEP 9 — CLOSING SUMMARY
 
 Print a polished summary:
@@ -402,15 +555,19 @@ Print a polished summary:
   Your commands
 ────────────────────────────────────────────────────
 
+  [If ECO_CHOICE includes clickup — show these:]
   /pickle-clickup           Scan ClickUp (last 24h)
   /pickle-clickup 7d        Past week
   /pickle-clickup followup  Confirm + send reminders
 
+  [If ECO_CHOICE includes slack — show these:]
   /pickle-slack             Scan Slack (last 24h)
   /pickle-slack 7d          Past week
   /pickle-slack followup    Confirm + send DM reminders
 
   /pickle-setup             Re-run this setup any time
+
+**Only print the blocks that apply.** If the user picked ClickUp only, don't show `/pickle-slack` commands at all — they won't work and will confuse the user.
 
 ────────────────────────────────────────────────────
   A few things to remember
@@ -422,6 +579,7 @@ Print a polished summary:
   🔒 Your tokens stay in ~/.claude.json on this machine only.
 
   Change anything any time by editing:
+    [only mention the file(s) relevant to their ECO_CHOICE]
     ~/.claude/skills/pickle-clickup/SKILL.md
     ~/.claude/skills/pickle-slack/SKILL.md
 
@@ -438,7 +596,10 @@ Print a polished summary:
 - Never print a token back after user pastes it
 - Never write to `~/.claude.json` without confirming with the user first
 - Never merge-overwrite existing MCP servers — preserve them
-- Never skip the restart step — it's the #1 cause of "it's not working"
+- **Exactly ONE restart** — at Step 7, after ALL config is written. Never ask the user to restart mid-flow. If setup needs config changes, batch them all up front and restart once at the end.
+- **No paid dependencies, ever.** Never suggest `@taazkareem/clickup-mcp-server` or any MCP package that requires a license key. Pickle uses its own free MCP at `pickle-mcp/clickup/` or the official Claude OAuth connector — both free.
+- Never guide the user to a paid upgrade to unlock features. If something requires paid ClickUp features, say so and offer a free workaround.
 - If user interrupts mid-setup, remember their progress and let them resume on next `/pickle-setup`
 - If anything fails, give a clear fix with a 1-line action — never a stack trace
 - Keep every section under ~12 lines of printed output — breathable, not a wall
+- **Skip restart entirely if no config changed.** If user picked OAuth-only for everything and no local MCP was written, verify immediately without asking for restart.

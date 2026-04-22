@@ -1,0 +1,33 @@
+{
+  "name": "@pickle/clickup-mcp",
+  "version": "1.0.0",
+  "description": "Free, open-source ClickUp MCP server for the Pickle project. Pure Node.js, no build step.",
+  "type": "module",
+  "main": "server.mjs",
+  "bin": {
+    "pickle-clickup-mcp": "./server.mjs"
+  },
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "mcp",
+    "clickup",
+    "pickle",
+    "model-context-protocol",
+    "claude"
+  ],
+  "author": "Aditya Sharma <support@posimyth.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/adityaarsharma/pickle"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "zod": "^3.23.8"
+  }
+}
