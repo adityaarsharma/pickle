@@ -701,7 +701,7 @@ user_id: MY_USER_ID
   Already actioned (memory skipped) : [N]
   Skipped (errors)          : [channel names or "none"]
 
-🔗 Slack List → slack://app.slack.com/lists/[LIST_ID]
+🔗 Slack List → https://app.slack.com/lists/[WORKSPACE_ID]/[LIST_ID]
 
 ════════════════════════════════════════════════════
   Re-run: /pickle-slack [time]

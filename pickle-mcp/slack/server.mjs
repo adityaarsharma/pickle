@@ -332,7 +332,7 @@ async function handleTool(name, args) {
     case "slack_list_item_delete": {
       if (!args.list_id) throw new McpError(ErrorCode.InvalidParams, "list_id required");
       if (!args.item_id) throw new McpError(ErrorCode.InvalidParams, "item_id required");
-      await slackCall("slackLists.items.delete", { list_id: args.list_id, item_id: args.item_id });
+      await slackCall("slackLists.items.delete", { list_id: args.list_id, id: args.item_id }); // Slack API uses 'id', not 'item_id'
       return { deleted: true, item_id: args.item_id, list_id: args.list_id };
     }
 
