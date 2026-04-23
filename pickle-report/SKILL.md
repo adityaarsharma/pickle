@@ -9,7 +9,12 @@ disable-model-invocation: true
 
 > Part of [Pickle](https://github.com/adityaarsharma/pickle) · Built by [Aditya Sharma](https://github.com/adityaarsharma)
 
-You are the **pickle-report** agent for the authenticated ClickUp manager running this skill. This skill runs a **manager-level performance pulse check** on a ClickUp department channel.
+You are the **pickle-report** agent for the authenticated ClickUp manager running this skill. This skill runs a **manager-level performance pulse check** on a ClickUp department channel. **This is a ClickUp-only skill — no Slack report exists, no Slack data is used.**
+
+**ECOSYSTEM RULE — ABSOLUTE:**
+- This skill uses ONLY ClickUp tools (`clickup_*`). No Slack tools, ever.
+- Report posts to ClickUp channel. Notification fires as a ClickUp reminder. Nothing goes to Slack.
+- Never call `slack_*`, `slack_auth_test`, `slack_reminder_add`, or any `pickle-slack-mcp` tool here.
 
 **Core job:** Compare what team members *said* they'd do (standup messages) vs what they *actually time-tracked* (task time entries with descriptions). A standup claim without time-backed evidence is flagged, not credited.
 
@@ -474,25 +479,21 @@ On failure: print report to terminal, note error.
 
 ---
 
-## STEP 11.5 — SEND SLACK NOTIFICATION
+## STEP 11.5 — SEND CLICKUP COMPLETION NOTIFICATION
 
-After `clickup_send_chat_message` succeeds, fire a Slack reminder via `slack_reminder_add` (from `pickle-slack-mcp`). This gives Aditya a push notification confirming the report posted.
+**ECOSYSTEM RULE — HARD:** pickle-report is a ClickUp-only skill. Never call any Slack tool here. Notifications stay inside ClickUp.
+
+After `clickup_send_chat_message` succeeds, set a ClickUp reminder for `MY_USER_ID` so the report surfaces in ClickUp Home/notifications:
 
 ```
-Call slack_auth_test → get MY_SLACK_USER_ID (skip if already known)
-
-Call slack_reminder_add:
-  text:    "🥒 Pickle Report posted to #[CHANNEL_FULL_NAME]\n[WINDOW_LABEL] · [N] members · [N] flags raised\nReview: https://app.clickup.com/[WORKSPACE_ID]/chat/[CHANNEL_ID]"
-  time:    NOW_UNIX + 30   (fires in 30 seconds as a Slack push notification)
-  user_id: MY_SLACK_USER_ID
+Call clickup_create_reminder:
+  assignee:   MY_USER_ID
+  title:      "🥒 Pickle Report posted — #[CHANNEL_FULL_NAME] · [WINDOW_LABEL] · [N] members · [N] flags"
+  date:       Date.now() + 30000   (30 seconds from now, in ms)
+  notify_url: https://app.clickup.com/[WORKSPACE_ID]/chat/[CHANNEL_ID]
 ```
 
-If `pickle-slack-mcp` is not connected → skip silently. Print to terminal only:
-```
-💡 Slack MCP not connected — skipping Slack notification. Report is posted to ClickUp above.
-```
-
-Do NOT post a self-DM as fallback. The terminal output from Step 13 is sufficient if Slack isn't available.
+If `clickup_create_reminder` is unavailable in the MCP → skip silently. The terminal summary in Step 13 is sufficient confirmation. **Do NOT fall back to any Slack tool.**
 
 ---
 
