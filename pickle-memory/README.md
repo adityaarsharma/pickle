@@ -1,11 +1,11 @@
-# Pickle Shared Cache
+# Pickle Shared Memory
 
-This folder holds the shared local cache used by `pickle-clickup`, `pickle-slack`, and `pickle-report`.
+This folder holds the shared local memory used by `pickle-clickup`, `pickle-slack`, and `pickle-report`.
 
 **Files:**
 - `workspace.json` — workspace ID, member list, channel list (TTL: 24h for members, 6h for channels)
 - `tasks.json` — recently fetched task details keyed by task ID (TTL: 1h per task)
-- `report-memory.json` — per-channel, per-member behavioural patterns used by pickle-report
+- `report-memory.json` — per-channel, per-member behavioural patterns used by pickle-report (90-day rolling)
 
 **Never commit these files.** They are excluded by `.gitignore`.
 

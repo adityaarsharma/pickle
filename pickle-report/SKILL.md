@@ -46,7 +46,7 @@ Read `~/.claude/skills/pickle-report/state.json`.
 - `GLOBAL_SETTINGS` → thresholds
 
 **Also read report memory:**
-Read `~/.claude/pickle/cache/report-memory.json` (may not exist on first run).
+Read `~/.claude/pickle/memory/report-memory.json` (may not exist on first run).
 - `REPORT_MEMORY[CHANNEL_NAME]` → per-member behavioural patterns, known zombies, flag history
 - If missing → first run, all patterns baseline
 
@@ -56,7 +56,7 @@ Read `~/.claude/pickle/cache/report-memory.json` (may not exist on first run).
 
 **Check shared cache before ANY API call:**
 
-Read `~/.claude/pickle/cache/workspace.json`.
+Read `~/.claude/pickle/memory/workspace.json`.
 
 ```
 If workspace.json exists AND members_cached_at + 24h > now:
@@ -68,7 +68,7 @@ If workspace.json exists AND members_cached_at + 24h > now:
 Else:
   → Call clickup_get_workspace_hierarchy → WORKSPACE_ID, MY_USER_ID
   → Call clickup_get_workspace_members → ALL_MEMBERS[]
-  → Write to ~/.claude/pickle/cache/workspace.json
+  → Write to ~/.claude/pickle/memory/workspace.json
   Print: "👤 Members fetched fresh from ClickUp ([N] members)"
 ```
 
@@ -87,7 +87,7 @@ If workspace.json.channels[CHANNEL_NAME or channel_id] exists AND channels_cache
 
 Else:
   → Call clickup_get_chat_channels. Fuzzy-match CHANNEL_NAME.
-  → Write channels to ~/.claude/pickle/cache/workspace.json
+  → Write channels to ~/.claude/pickle/memory/workspace.json
 ```
 
 If channel not found after fresh fetch → list available channels and stop.
@@ -124,7 +124,7 @@ Run 4 members in parallel.
 For each task ID from 4B:
 
 ```
-Read ~/.claude/pickle/cache/tasks.json
+Read ~/.claude/pickle/memory/tasks.json
 
 If tasks.json[task_id] exists AND cached_at + 1h > now AND date_updated_ms matches:
   → Use cached task data ← SKIP clickup_get_task
@@ -504,7 +504,7 @@ Update `~/.claude/skills/pickle-report/state.json` with current run scores, flag
 Rolling 12-report history per member. Recalculate `avg_delivery_rate_3r`, `trend`, `recurring_flags` after each write.
 
 **12B — Update report memory (shared cache):**
-Write to `~/.claude/pickle/cache/report-memory.json`:
+Write to `~/.claude/pickle/memory/report-memory.json`:
 
 ```json
 {

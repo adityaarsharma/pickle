@@ -136,7 +136,7 @@ If no prefs file → print `🎯 Generic scoring (no role profile — run /pickl
 **Check shared cache before API calls:**
 
 ```
-Read ~/.claude/pickle/cache/workspace.json
+Read ~/.claude/pickle/memory/workspace.json
 
 If workspace.json exists AND members_cached_at + 24h > now:
   WORKSPACE_ID = cache.workspace_id
@@ -146,7 +146,7 @@ Else:
   Call clickup_get_workspace_members → ALL_MEMBERS[]
   Call clickup_get_workspace_hierarchy → WORKSPACE_ID
   Build MEMBER_MAP = { user_id: { name, username, email } }
-  mkdir -p ~/.claude/pickle/cache/
+  mkdir -p ~/.claude/pickle/memory/
   Write to workspace.json: { workspace_id, workspace_name, members_cached_at: now, members: MEMBER_MAP }
   Print: "👤 Members fetched fresh ([N] members)"
 ```
@@ -154,7 +154,7 @@ Else:
 Always identify `MY_USER_ID` from the authenticated session — don't rely on cache for this.
 
 **After the run, always update task cache:**
-Any tasks fetched during channel scanning → write to `~/.claude/pickle/cache/tasks.json` (keyed by task ID, with cached_at timestamp). This pre-warms the cache for `pickle-report` runs later.
+Any tasks fetched during channel scanning → write to `~/.claude/pickle/memory/tasks.json` (keyed by task ID, with cached_at timestamp). This pre-warms memory for `pickle-report` runs later.
 
 Store: `MY_USER_ID`, `MY_NAME`, `WORKSPACE_ID`, `MEMBER_MAP`
 

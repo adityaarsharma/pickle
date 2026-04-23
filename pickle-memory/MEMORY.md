@@ -1,14 +1,14 @@
-# Pickle Shared Cache — Protocol
+# Pickle Shared Memory — Protocol
 
 > Used by: `pickle-clickup`, `pickle-slack`, `pickle-report`, `pickle-me`
 
-All Pickle skills share a local cache at `~/.claude/pickle/cache/`. This avoids redundant API calls — if `pickle-clickup` ran this morning and fetched the member list, `pickle-report` running an hour later uses that same list without hitting ClickUp again.
+All Pickle skills share a local memory store at `~/.claude/pickle/memory/`. This avoids redundant API calls and builds behavioural context over time — if `pickle-clickup` ran this morning and fetched the member list, `pickle-report` running an hour later uses that same data without hitting ClickUp again.
 
 ---
 
-## Cache Files
+## Memory Files
 
-### `~/.claude/pickle/cache/workspace.json`
+### `~/.claude/pickle/memory/workspace.json`
 Workspace-level data. Expensive to fetch, rarely changes.
 
 ```json
@@ -33,7 +33,7 @@ Workspace-level data. Expensive to fetch, rarely changes.
 }
 ```
 
-### `~/.claude/pickle/cache/tasks.json`
+### `~/.claude/pickle/memory/tasks.json`
 Recently fetched task details. Short TTL since tasks update frequently.
 
 ```json
@@ -55,7 +55,7 @@ Recently fetched task details. Short TTL since tasks update frequently.
 }
 ```
 
-### `~/.claude/pickle/cache/report-memory.json`
+### `~/.claude/pickle/memory/report-memory.json`
 Behavioural patterns per channel per member. Used by `pickle-report` to detect trends over time. No TTL — grows permanently, pruned to 90 days.
 
 ```json
@@ -87,16 +87,16 @@ Behavioural patterns per channel per member. Used by `pickle-report` to detect t
 
 ---
 
-## Cache Read Protocol (for all skills)
+## Memory Read Protocol (for all skills)
 
-At the start of any data-fetch step, before calling any ClickUp MCP tool:
+At the start of any data-fetch step, before calling any MCP tool:
 
 ```
-CACHE_READ(key, ttl_hours):
-  1. Read ~/.claude/pickle/cache/workspace.json (or tasks.json)
+MEMORY_READ(key, ttl_hours):
+  1. Read ~/.claude/pickle/memory/workspace.json (or tasks.json)
   2. Check if key exists AND cached_at + ttl_hours > now
-  3. If FRESH → return cached value, skip API call
-  4. If STALE or MISSING → call ClickUp API, then write result to cache
+  3. If FRESH → return memory value, skip API call
+  4. If STALE or MISSING → call API, then write result to memory
 ```
 
 **TTL rules:**
@@ -110,13 +110,13 @@ CACHE_READ(key, ttl_hours):
 
 ---
 
-## Cache Write Protocol
+## Memory Write Protocol
 
 After every fresh API fetch, always write back:
 
 ```
-CACHE_WRITE(key, data):
-  1. Read existing cache file (or start with {})
+MEMORY_WRITE(key, data):
+  1. Read existing memory file (or start with {})
   2. Merge key → data with cached_at = now ISO timestamp
   3. Write back atomically
   4. Never delete existing keys when writing new ones
@@ -124,12 +124,12 @@ CACHE_WRITE(key, data):
 
 ---
 
-## Cache Invalidation
+## Memory Invalidation
 
 A skill should **force-refresh** (ignore TTL) when:
 - User explicitly passes `--refresh` or `fresh` argument
 - A write operation was just performed (e.g. task status updated)
-- Cache file is corrupt or unparseable → treat as MISS, rebuild
+- Memory file is corrupt or unparseable → treat as MISS, rebuild
 
 ---
 
@@ -138,25 +138,25 @@ A skill should **force-refresh** (ignore TTL) when:
 ```
 pickle-clickup (runs daily)
   → fetches members, channels, task details
-  → writes to workspace.json + tasks.json
+  → writes to memory/workspace.json + memory/tasks.json
 
 pickle-report (runs weekly)
   → reads workspace.json → SKIPS member/channel API calls if fresh
-  → reads tasks.json → SKIPS task detail calls for recently cached tasks
+  → reads tasks.json → SKIPS task detail calls for recently memorised tasks
   → writes report-memory.json with new patterns + flags
 
 pickle-me (runs daily)
   → reads workspace.json → gets MY_USER_ID + member map without API call
   → reads tasks.json → gets task details for recently touched tasks
-  → writes nothing to shared cache (personal only → state.json)
+  → writes nothing to shared memory (personal only → state.json)
 ```
 
-**Net result:** After `pickle-clickup` runs once, `pickle-report` needs ~60% fewer API calls. After 3+ runs, `pickle-report` only re-fetches tasks that changed since last cache.
+**Net result:** After `pickle-clickup` runs once, `pickle-report` needs ~60% fewer API calls. After 3+ runs, `pickle-report` only re-fetches tasks that changed since last run.
 
 ---
 
 ## First Run
 
-On first run, all caches are empty (MISS). All API calls happen normally. After the run, everything is written to cache. Second run is significantly faster.
+On first run, all memory is empty (MISS). All API calls happen normally. After the run, everything is written to memory. Second run is significantly faster.
 
-If cache folder doesn't exist: `mkdir -p ~/.claude/pickle/cache/` and proceed — caches are all MISS, build fresh.
+If memory folder doesn't exist: `mkdir -p ~/.claude/pickle/memory/` and proceed — all entries are MISS, build fresh.
