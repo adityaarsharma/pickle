@@ -1137,7 +1137,7 @@ const tools = [
       if (include_done !== undefined) query.include_done = include_done;
       if (due_date_gt !== undefined) query.due_date_gt = due_date_gt;
       if (due_date_lt !== undefined) query.due_date_lt = due_date_lt;
-      return clickupFetch("GET", `/api/v3/workspaces/${teamId}/reminders`, { query });
+      return clickupFetch("GET", `/api/v2/team/${teamId}/reminder`, { query });
     },
   },
 
@@ -1154,10 +1154,10 @@ const tools = [
     }),
     async handler({ team_id, name, assignee, due_date, due_date_time, notify_all }) {
       const teamId = await resolveTeamId(team_id);
-      const body = { title: name, assignee_id: assignee, due_date };
+      const body = { name, assignee, due_date };
       if (due_date_time !== undefined) body.due_date_time = due_date_time;
       if (notify_all !== undefined) body.notify_all = notify_all;
-      return clickupFetch("POST", `/api/v3/workspaces/${teamId}/reminders`, { body });
+      return clickupFetch("POST", `/api/v2/team/${teamId}/reminder`, { body });
     },
   },
 
