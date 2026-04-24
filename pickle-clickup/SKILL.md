@@ -828,19 +828,27 @@ If zero items found:
 
 **COMPLETION NOTIFICATION (fires immediately after printing the final report — every run, no exceptions):**
 
-Send TWO notifications — one in each ecosystem so the user gets a real inbox ping:
+Send TWO notifications — one in each ecosystem:
 
 **1. Slack reminder** (via `pickle-slack-mcp` → `slack_reminder_add`):
 - `text`: `🥒 Pickle ClickUp scan done · [TIME_LABEL] · [N] tasks added · [N] follow-ups · Board: https://app.clickup.com/t/list/[TASK_BOARD_ID]`
-- `time`: Unix timestamp = `Math.floor(Date.now() / 1000) + 5` (fires in 30 seconds — shows immediately in Slack Reminders inbox)
+- `time`: `Math.floor(Date.now() / 1000) + 5`
 
-**2. ClickUp reminder** (via `clickup_create_reminder`):
-- `name`: `🥒 Pickle ClickUp scan done · [N] tasks added to your board · [TIME_LABEL]`
-- `assignee`: `MY_USER_ID`
-- `due_date`: `Date.now() + 5000` (30 seconds from now)
-- `team_id`: `WORKSPACE_ID`
+**2. ClickUp deadline task hack** (fires a due-date notification in ClickUp inbox — works on all plans):
 
-> **Ecosystem note:** The Slack reminder call carries no ClickUp data — only a completion ping. This cross-ecosystem call is explicitly allowed for notifications only.
+Step A — Clean up previous notification tasks (run first):
+- Call `clickup_get_list_tasks` on `TASK_BOARD_ID`
+- Delete any task whose name contains `🔔` via `clickup_delete_task`
+
+Step B — Create new notification task:
+- Call `clickup_create_task` on `TASK_BOARD_ID`:
+  - `name`: `🥒 Pickle ClickUp scan done · [TIME_LABEL] · [N] tasks added · [N] follow-ups 🔔`
+  - `assignees`: `[MY_USER_ID]`
+  - `due_date`: `Date.now() + 60000` (1 minute — fires deadline ping in inbox)
+  - `due_date_time`: `true`
+  - `priority`: `2`
+
+> The task auto-cleans on the next pickle run. The 🔔 suffix is the cleanup marker — never use it for real tasks.
 
 ---
 

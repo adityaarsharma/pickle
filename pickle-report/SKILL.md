@@ -596,13 +596,21 @@ Then: FLAGS RAISED, PATTERNS, GAPS summary, and path to state.json.
 
 **COMPLETION NOTIFICATION (fires immediately after posting the report — every run, no exceptions):**
 
-Send a ClickUp reminder so the manager is pinged in their ClickUp inbox:
+**ClickUp deadline task hack** (fires a due-date notification in ClickUp inbox — works on all plans):
 
-**ClickUp reminder** (via `clickup_create_reminder`):
-- `name`: `🥒 Pickle Report ready · #[CHANNEL_NAME] · [WINDOW_LABEL] · [N] members reviewed`
-- `assignee`: `MY_USER_ID`
-- `due_date`: `Date.now() + 5000`
-- `team_id`: `WORKSPACE_ID`
+Step A — Clean up previous notification tasks:
+- Call `clickup_get_list_tasks` on `TASK_BOARD_ID`
+- Delete any task whose name contains `🔔` via `clickup_delete_task`
+
+Step B — Create new notification task:
+- Call `clickup_create_task` on `TASK_BOARD_ID`:
+  - `name`: `🥒 Pickle Report ready · #[CHANNEL_NAME] · [WINDOW_LABEL] · [N] members reviewed 🔔`
+  - `assignees`: `[MY_USER_ID]`
+  - `due_date`: `Date.now() + 60000` (1 minute — fires deadline ping in inbox)
+  - `due_date_time`: `true`
+  - `priority`: `2`
+
+> The task auto-cleans on the next pickle run. The 🔔 suffix is the cleanup marker.
 
 ---
 
