@@ -594,5 +594,11 @@ Then: FLAGS RAISED, PATTERNS, GAPS summary, and path to state.json.
 
 ---
 
-🔄 Run: bash ~/.claude/pickle-mcp/update.sh to get latest fixes
+[UPDATE_LINE_IF_NEWER]
 🥒 Built and Shipped by Aditya Sharma
+
+**VERSION CHECK (runs once at the very end, before posting the report):**
+1. Bash: `grep -m1 'pickle/clickup-mcp' ~/.claude/pickle-mcp/clickup/server.mjs | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+'` → `INSTALLED_VER`
+2. WebFetch: `https://api.github.com/repos/adityaarsharma/pickle/releases/latest` → read `tag_name` → `LATEST_VER`
+3. If `LATEST_VER ≠ INSTALLED_VER` → replace `[UPDATE_LINE_IF_NEWER]` with: `🔄 Update available: $INSTALLED_VER → $LATEST_VER · run: bash ~/.claude/pickle-mcp/update.sh`
+4. If same OR fetch fails → remove `[UPDATE_LINE_IF_NEWER]` line entirely (print nothing)

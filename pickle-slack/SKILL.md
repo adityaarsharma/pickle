@@ -709,7 +709,7 @@ user_id: MY_USER_ID
   ClickUp counterpart: /pickle-clickup [time]
   Docs: https://github.com/adityaarsharma/pickle
 ────────────────────────────────────────────────────
-  🔄 Run: bash ~/.claude/pickle-mcp/update.sh to get latest fixes
+  [UPDATE_LINE_IF_NEWER]
   🥒 Built and Shipped by Aditya Sharma
 ════════════════════════════════════════════════════
 ```
@@ -719,9 +719,17 @@ If zero items found:
 ✅ All clear — no Slack action items or pending follow-ups in [TIME_LABEL].
    Conversations scanned: [N] · Messages reviewed: [N]
 
-  🔄 Run: bash ~/.claude/pickle-mcp/update.sh to get latest fixes
+  [UPDATE_LINE_IF_NEWER]
   🥒 Built and Shipped by Aditya Sharma
 ```
+
+---
+
+**VERSION CHECK (runs once at the very end, before printing final report):**
+1. Bash: `grep -m1 'pickle/slack-mcp' ~/.claude/pickle-mcp/slack/server.mjs | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+'` → `INSTALLED_VER`
+2. WebFetch: `https://api.github.com/repos/adityaarsharma/pickle/releases/latest` → read `tag_name` → `LATEST_VER`
+3. If `LATEST_VER ≠ INSTALLED_VER` → replace `[UPDATE_LINE_IF_NEWER]` with: `🔄 Update available: $INSTALLED_VER → $LATEST_VER · run: bash ~/.claude/pickle-mcp/update.sh`
+4. If same OR fetch fails → remove `[UPDATE_LINE_IF_NEWER]` line entirely (print nothing)
 
 ---
 
