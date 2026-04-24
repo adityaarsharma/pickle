@@ -197,18 +197,28 @@ Call `clickup_get_list_tasks` on `TASK_BOARD_ID`. For tasks where:
 
 → Call `clickup_delete_task` on each. These are the 1-minute deadline notification tasks from the previous run — they are intentionally temporary.
 
-### B — Roll yesterday's in-progress tasks forward
+### B — Auto-delete old Complete tasks
+
+Call `clickup_get_list_tasks` with `statuses: ["complete"]` and `include_closed: true`. For tasks where:
+- `date_done < now − 7 days` (marked complete more than 7 days ago)
+
+→ Call `clickup_delete_task` on each.
+
+**Never delete** tasks in any status other than `complete`.
+
+### C — Roll yesterday's Today tasks forward
 
 For tasks where:
-- `status = "in progress"` AND `due_date < today midnight`
+- `status = "today"` AND `due_date < today midnight`
 
-→ Bump `due_date` to today only (do NOT change status — they're still active work).
+→ Bump `due_date` to today only (do NOT change status — they're still today's work).
 
 Print:
 ```
 🧹 Board cleanup:
   · [N] notification tasks removed
-  · [N] in-progress tasks rolled to today
+  · [N] old complete tasks deleted (7d+ ago)
+  · [N] yesterday's today tasks rolled forward
 ```
 
 ---
@@ -713,13 +723,23 @@ SOURCE_URL = [if chat message]  https://app.clickup.com/[WORKSPACE_ID]/chat/r/[c
 ```
 This is the 1-click jump back to the original message. **Never omit the source link.**
 
-**Status rules (REQUIRED — never leave blank):**
+**Board status order (REQUIRED — always use exactly these names):**
 
-| Source type | Status |
-|-------------|--------|
-| `assigned_comment` | `"in progress"` — you're already named on this work |
-| Any item with `priority=urgent` and `due_date=today` | `"in progress"` — surface it immediately |
-| All other Mode A items | `"to do"` — queued, not yet started |
+| Status | Meaning | When to use |
+|--------|---------|-------------|
+| `to do` | Queued, not started | Default for all new inbox items |
+| `in progress` | Actively working on it right now | User moves tasks here manually |
+| `today` | Must be done today | Urgent + due today; assigned comments needing same-day action |
+| `complete` | Done | User marks done; auto-deleted after 7 days (see Step 2.5) |
+| `waiting` | Blocked on someone else | All Mode B follow-up tasks |
+
+**Status rules for task creation:**
+
+| Source type | Status at creation |
+|-------------|-------------------|
+| `assigned_comment` | `"today"` — you're named, needs same-day action |
+| Any item with `priority=urgent` and `due_date=today` | `"today"` |
+| All other Mode A inbox items | `"to do"` |
 
 **Naming rule:**
 - Regular inbox item → `[action verb] [context] — [person/channel]` (max 80 chars)
@@ -777,7 +797,7 @@ Call `clickup_create_task`:
 ```
 list_id:   TASK_BOARD_ID
 name:      🔁 [their name] — [what was asked] (max 80)   ← always prefix with 🔁 so follow-ups are visually distinct
-status:    "to do"   ← waiting on someone else; not "in progress" (that's MY active work)
+status:    "waiting"   ← blocked on someone else; sits in the Waiting group on the board
 priority:  [rules above]
 due_date:  [rules above]
 assignees: [MY_USER_ID]
