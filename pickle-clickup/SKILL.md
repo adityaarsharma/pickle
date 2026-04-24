@@ -812,6 +812,7 @@ If `clickup_create_reminder` is unavailable in the MCP → skip silently. The te
   Slack counterpart: /pickle-slack [time]
   Docs: https://github.com/adityaarsharma/pickle
 ────────────────────────────────────────────────────
+  🔄 MCP update available? Run: bash ~/.claude/pickle-mcp/update.sh
   🥒 Built and Shipped by Aditya Sharma
 ════════════════════════════════════════════════════
 ```

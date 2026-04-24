@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @pickle/clickup-mcp  v2.3.0
+ * @pickle/clickup-mcp  v2.4.0
  *
  * Free, open-source ClickUp MCP server — part of the Pickle project.
  * Pure Node.js ESM · no build step · no TypeScript compilation.
@@ -1117,7 +1117,7 @@ const tools = [
   },
 
   // =========================================================================
-  // REMINDERS  (v2 — requires Business plan or above)
+  // REMINDERS  (v3 — requires ClickUp Business plan or above)
   // =========================================================================
 
   {
@@ -1133,11 +1133,11 @@ const tools = [
     async handler({ team_id, assignee, include_done, due_date_gt, due_date_lt }) {
       const teamId = await resolveTeamId(team_id);
       const query = {};
-      if (assignee !== undefined) query.assignee = assignee;
+      if (assignee !== undefined) query.assignee_id = assignee;
       if (include_done !== undefined) query.include_done = include_done;
       if (due_date_gt !== undefined) query.due_date_gt = due_date_gt;
       if (due_date_lt !== undefined) query.due_date_lt = due_date_lt;
-      return clickupFetch("GET", `/api/v2/team/${teamId}/reminder`, { query });
+      return clickupFetch("GET", `/api/v3/workspaces/${teamId}/reminders`, { query });
     },
   },
 
@@ -1154,10 +1154,10 @@ const tools = [
     }),
     async handler({ team_id, name, assignee, due_date, due_date_time, notify_all }) {
       const teamId = await resolveTeamId(team_id);
-      const body = { name, assignee, due_date };
+      const body = { title: name, assignee_id: assignee, due_date };
       if (due_date_time !== undefined) body.due_date_time = due_date_time;
       if (notify_all !== undefined) body.notify_all = notify_all;
-      return clickupFetch("POST", `/api/v2/team/${teamId}/reminder`, { body });
+      return clickupFetch("POST", `/api/v3/workspaces/${teamId}/reminders`, { body });
     },
   },
 
@@ -1236,7 +1236,7 @@ function isOptional(schema) {
 // ---------------------------------------------------------------------------
 
 const server = new Server(
-  { name: "pickle-clickup-mcp", version: "2.3.0" },
+  { name: "pickle-clickup-mcp", version: "2.4.0" },
   { capabilities: { tools: {} } }
 );
 
@@ -1285,7 +1285,7 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   process.stderr.write(
-    `[pickle-clickup-mcp] v2.3.0 ready — ${tools.length} tools registered\n`
+    `[pickle-clickup-mcp] v2.4.0 ready — ${tools.length} tools registered\n`
   );
 }
 
