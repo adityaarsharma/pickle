@@ -483,17 +483,25 @@ On failure: print report to terminal, note error.
 
 **ECOSYSTEM RULE — HARD:** pickle-report is a ClickUp-only skill. Never call any Slack tool here. Notifications stay inside ClickUp.
 
-After `clickup_send_chat_message` succeeds, set a ClickUp reminder for `MY_USER_ID` so the report surfaces in ClickUp Home/notifications:
+After `clickup_send_chat_message` succeeds, fire the **ClickUp deadline task hack** — creates a task with a 1-minute due date, which triggers ClickUp's built-in deadline notification in the user's inbox. Works on all plans (no Business plan required). **`clickup_create_reminder` does NOT exist as a public API — never call it.**
 
-```
-Call clickup_create_reminder:
-  assignee:   MY_USER_ID
-  title:      "🥒 Pickle Report posted — #[CHANNEL_FULL_NAME] · [WINDOW_LABEL] · [N] members · [N] flags"
-  date:       Date.now() + 5000   (30 seconds from now, in ms)
-  notify_url: https://app.clickup.com/[WORKSPACE_ID]/chat/[CHANNEL_ID]
-```
+Resolve `TASK_BOARD_ID` first (if not already known):
+- Call `clickup_get_workspace_hierarchy` → scan ALL lists across ALL spaces for name `"Task Board - By Pickle"` (exact match)
+- If found → use it. If multiple → use the one with the most tasks. **Never create a new one.**
 
-If `clickup_create_reminder` is unavailable in the MCP → skip silently. The terminal summary in Step 13 is sufficient confirmation. **Do NOT fall back to any Slack tool.**
+**Step A — Clean up previous notification tasks:**
+- Call `clickup_get_list_tasks` on `TASK_BOARD_ID`
+- Delete any task whose name contains `🔔` via `clickup_delete_task`
+
+**Step B — Create notification task:**
+Call `clickup_create_task` on `TASK_BOARD_ID`:
+- `name`: `🥒 Pickle Report ready · #[CHANNEL_NAME] · [WINDOW_LABEL] · [N] members reviewed 🔔`
+- `assignees`: `[MY_USER_ID]`
+- `due_date`: `Date.now() + 60000` (1 minute — fires deadline ping in ClickUp inbox)
+- `due_date_time`: `true`
+- `priority`: `2`
+
+The 🔔 suffix is the cleanup marker — removed on the next pickle run. **Do NOT fall back to any Slack tool.**
 
 ---
 

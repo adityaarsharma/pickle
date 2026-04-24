@@ -14,7 +14,7 @@ You are the **pickle-clickup** agent for the authenticated ClickUp user. Pickle 
 **ECOSYSTEM RULE — ABSOLUTE:**
 - This skill uses ONLY ClickUp tools (`clickup_*`). No Slack tools, ever.
 - ClickUp items → ClickUp personal task board. Never create Slack messages or list entries from ClickUp data.
-- Notifications → ClickUp reminders only (`clickup_create_reminder`). Never call `slack_*` or `pickle-slack-mcp` tools here.
+- Notifications → ClickUp deadline task only (the 🔔 hack). Never call `slack_*` or `pickle-slack-mcp` tools here.
 - ClickUp data never leaves the ClickUp ecosystem.
 
 You operate in two modes simultaneously:
@@ -246,6 +246,21 @@ Call `clickup_search_reminders` with `assignee_id: MY_USER_ID` (or equivalent). 
 
 If `clickup_search_docs` is available, list Docs updated within window (filter by `date_updated_gt >= TIME_CUTOFF_MS` when the API supports it). Store as `ACTIVE_DOCS[]`. Skip silently if the tool isn't available (connector-path users may not have Docs v3 exposed).
 
+### 3E — Assigned Comments + Delegated Comments (client-side — no extra API calls)
+
+**There is no workspace-wide API for assigned comments.** ClickUp has no endpoint to list all comments assigned to a user across tasks (confirmed public feature gap, active request since September 2024, no ClickUp response as of 2025). Pickle solves this by filtering during the Step 4C comment pass:
+
+- While scanning each task's comments, inspect every comment object:
+  - `comment.assignee?.id === MY_USER_ID && !comment.resolved` → `source_type: assigned_comment` → Mode A inbox
+  - `comment.assigned_by?.id === MY_USER_ID && !comment.resolved` → `source_type: delegated_comment` → Mode B follow-up
+
+**Scope caveat:** Covers tasks in `ACTIVE_TASKS[]` (assigned/watching, updated in window). Assigned comments on tasks outside that set are a known API gap — no workaround without exhaustive workspace scan.
+
+🚫 **Hard gaps — no ClickUp API exists for these surfaces:**
+- **Inbox sections** (Primary / Other / Later / Cleared) — UI only, no API
+- **Save for Later** — no API (confirmed by ClickUp PM, explicitly not on roadmap as of 2025)
+- **Reminders API** — no public endpoint on any plan (deadline task hack used instead for notifications)
+
 Print:
 ```
 🔍 Discovered:
@@ -253,6 +268,8 @@ Print:
   · [N] active tasks (assigned or watching)
   · [N] incoming reminders
   · [N] docs with activity (if available)
+  · Assigned/delegated comments: collected during Step 4C task scan
+  🚫 Inbox tabs / Save for Later / Reminders API — no ClickUp API
 ```
 
 ---
@@ -318,6 +335,13 @@ For each comment with `reply_count > 0`, call `clickup_get_threaded_comments` (b
 
 **If `ACTIVE_TASKS[]` has > 50 tasks**, process them in waves: 6 tasks' comments in parallel, finish wave, start next. Do not fire 500 concurrent API calls.
 
+**Assigned comment pass (zero extra API calls — piggybacks on the comment fetch above):**
+For every comment already fetched, inspect the assignment fields:
+- `comment.assignee?.id === MY_USER_ID && comment.resolved === false` → add to `ALL_MESSAGES[]` as `source_type: assigned_comment` with `content = comment.comment_text`, `user_id = comment.assigned_by.id`
+- `comment.assigned_by?.id === MY_USER_ID && comment.resolved === false` → add to `ALL_MESSAGES[]` as `source_type: delegated_comment` with `content = comment.comment_text`, `user_id = comment.assignee.id`
+
+Both are collected for free during the same loop — no additional API calls.
+
 ### 4D — Task description @mentions (lightweight)
 
 For each `task_id` in `ACTIVE_TASKS[]`, scan the already-fetched `description` field (no extra API call) for `@[MY_NAME]` / `@[MY_USER_ID]`. If found AND `date_created >= TIME_CUTOFF_MS` (i.e. task is new in window OR description was recently edited) → add synthetic entry to `ALL_MESSAGES[]` with `source_type: task_description`.
@@ -333,7 +357,7 @@ If `ACTIVE_DOCS[]` populated, fetch page content for each via `clickup_get_doc_p
 On connector errors → skip that source, add name to `ERRORS[]`, continue. Never fail the whole run because one source errored.
 
 Build unified `ALL_MESSAGES[]` with:
-- `source_type`: `channel` | `dm` | `group_dm` | `task_comment` | `task_comment_reply` | `task_description` | `reminder` | `doc_mention`
+- `source_type`: `channel` | `dm` | `group_dm` | `task_comment` | `task_comment_reply` | `task_description` | `reminder` | `doc_mention` | `assigned_comment` | `delegated_comment`
 - `message_id` (chat) OR `comment_id` (task comment) OR synthetic id for `task_description`/`reminder`/`doc_mention`
 - `parent_id` — channel_id OR task_id OR doc_id
 - `parent_name` — channel name OR task name OR doc name
@@ -346,6 +370,8 @@ Print per source type:
 ✓ DM: Jordan            — [N] in window
 ✓ Task: "Plugin zip"    — [N] comments in window
 ✓ Task description @me  — [N] tasks
+✓ Assigned comments     — [N] unresolved (collected during 4C)
+✓ Delegated comments    — [N] unresolved (collected during 4C)
 ✓ Reminders from others — [N]
 ✓ Docs with @me         — [N]
 ```
@@ -388,6 +414,7 @@ In public/team spaces, @mention IS the filter. Include if ANY of these:
 6. **Task assignment change** — I was just made assignee or watcher
 7. **Partnership / deal** — message asks for my reply or approval in a deal/partnership context
 8. **In DM/group DM: any pending question or decision** — see DM rules above (no @mention needed)
+9. **Assigned comment (source_type = `assigned_comment`)** — ALWAYS include, no further filter. Being assigned to a comment is the action signal itself. Urgency = NORMAL by default; bump to HIGH if `assigned_by` is a senior/manager or deadline is mentioned in the comment text.
 
 ### 🌐 Multilingual intent detection (MUST apply — do not just keyword-match)
 
@@ -428,6 +455,7 @@ Scan `ALL_MESSAGES[]` for messages sent **by me** (`user_id == MY_USER_ID`) that
 2. **Delegation with deadline** — I mentioned a person AND gave a task or deadline ("submit by Wednesday", "send by EOD")
 3. **Recurring commitment** — I asked for regular updates: "daily update", "send every morning", "weekly report"
 4. **Question I asked** — a direct question in a DM or thread
+5. **Delegated comment (source_type = `delegated_comment`)** — ALWAYS qualify. A comment you assigned to someone else that remains `resolved === false` is an open delegation. Treat like "I asked someone to do work." Urgency = NORMAL by default; escalate to HIGH if the comment is older than 3 days with no reply.
 
 ---
 
@@ -741,22 +769,6 @@ description:
 ```
 
 ---
-
-### Step 8.5 — Fire completion notification via ClickUp Reminder
-
-**ECOSYSTEM RULE — HARD:** pickle-clickup is a ClickUp-only skill. Never call any Slack tool here. Notifications stay in ClickUp.
-
-After ALL tasks are created, set one ClickUp reminder for `MY_USER_ID` so it surfaces in their ClickUp Home/notifications:
-
-```
-Call clickup_create_reminder:
-  assignee:   MY_USER_ID
-  title:      "🥒 Pickle inbox ready — [N] tasks added to Task Board - By Pickle"
-  date:       Date.now() + 5000   (30 seconds from now, in ms)
-  notify_url: https://app.clickup.com/[WORKSPACE_ID]/board/[TASK_BOARD_ID]
-```
-
-If `clickup_create_reminder` is unavailable in the MCP → skip silently. The terminal report in Step 9 is sufficient confirmation. **Do NOT fall back to any Slack tool.**
 
 ---
 

@@ -240,7 +240,17 @@ Print:
   · [N] public channels  · [N] private channels
   · [N] DMs  · [N] group DMs
   · [N] @mentions via search  · [N] list assignments
+  🚫 Save for Later / Huddles / Drafts — no Slack API (see note below)
 ```
+
+> **Hard API gaps (no Slack API exists, confirmed as of 2025):**
+> - **Save for Later / Later list** — deprecated in March 2023, no replacement API. Slack's own docs state: "There are no direct APIs for Save it for Later." Cannot be fetched.
+> - **Message Drafts** — client-side only, not exposed via Web API.
+> - **Huddle notifications / missed huddles** — only `user_huddle_changed` event (Events API), no REST endpoint.
+> - **Reminders** — `reminders.list` deprecated March 2023, unreliable. Skipped.
+> - **Reactions on your messages** — no dedicated endpoint; requires per-channel iteration (expensive). Skipped.
+>
+> These gaps are documented so users know what Pickle cannot see. They are not Pickle bugs.
 
 ---
 
