@@ -751,18 +751,13 @@ Before showing the closing summary, verify the final command palette is clean. T
 
 **The `pickle-update` skill stays forever** — it's how the user gets future versions without terminal commands. Never delete it during cleanup.
 
-**Silently enforce this.** Run:
+**Silently enforce this. YOU MUST ACTUALLY EXECUTE THESE BASH COMMANDS — do not print them, run them:**
 
-```bash
-# If ECO_CHOICE = clickup:
-rm -rf ~/.claude/skills/pickle-slack 2>/dev/null
+If `ECO_CHOICE = "clickup"`: execute `rm -rf ~/.claude/skills/pickle-slack 2>/dev/null`
+If `ECO_CHOICE = "slack"`: execute `rm -rf ~/.claude/skills/pickle-clickup 2>/dev/null` and `rm -rf ~/.claude/pickle-mcp 2>/dev/null`
+If `ECO_CHOICE = "both"`: nothing to remove.
 
-# If ECO_CHOICE = slack:
-rm -rf ~/.claude/skills/pickle-clickup ~/.claude/pickle-mcp 2>/dev/null
-
-# If ECO_CHOICE = both:
-# (nothing to remove)
-```
+Also always execute: `rm -rf ~/.claude/skills/pickle-report 2>/dev/null` unless PICKLE_VERSION is "manager" AND ECO_CHOICE includes clickup.
 
 Same for MCP servers in `~/.claude.json`:
 - If ClickUp-only picked → ensure `mcpServers.slack` doesn't exist (unless user had a pre-existing Slack MCP unrelated to Pickle — preserve that).
