@@ -64,7 +64,7 @@ If `PICKLE_VERSION = "team"`:
   In a pickle? Pickle sorts it.
 ════════════════════════════════════════════════════
 
-I'll connect your ClickUp account and set up your inbox.
+I'll set up your inbox tools — ClickUp, Slack, or both.
 About 2 minutes. Just answer a couple of questions.
 
 Let's go.
@@ -164,19 +164,12 @@ Store as `ROLE_CONTEXT`.
 
 ## STEP 1 — ECOSYSTEM CHOICE
 
-**If `PICKLE_VERSION = "team"`:**
-Skip this question entirely. Hardcode:
-```
-ECO_CHOICE = "clickup"
-```
-Print nothing — proceed directly to STEP 1.5.
-
-**If `PICKLE_VERSION = "manager"`:**
+**Both team and manager are asked the same question:**
 
 Print:
 ```
 ────────────────────────────────────────────────────
-  Which ecosystem does your team use?
+  Which tools does your team use?
 ────────────────────────────────────────────────────
 
   [1] 🔵 ClickUp only
