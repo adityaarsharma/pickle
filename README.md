@@ -86,26 +86,26 @@ Both versions use the same private "Task Board - By Pickle". Each ecosystem stay
 
 ### 🧑‍💼 For managers and team leads
 
-Paste into Claude Code:
+Run in your terminal:
 
+```bash
+curl -fsSL https://raw.githubusercontent.com/adityaarsharma/pickle/main/install-manager.sh | bash
 ```
-Install Pickle from github.com/adityaarsharma/pickle
-```
 
-Installs: `/pickle-clickup` · `/pickle-slack` · `/pickle-clickup-team-report` · `/pickle-update`  
-(Only the ecosystems you connect get installed.)
+Installs: `/pickle-clickup` · `/pickle-slack` · `/pickle-clickup-team-report` · `/pickle-update`
 
-Takes about 3 minutes. Pickle asks your name and role on first run, then connects ClickUp/Slack. One restart. You're live.
+Takes about 3 minutes. Connect ClickUp and/or Slack after install, then restart Claude Code. You're live.
 
 ### 👤 For team members
 
-Paste into Claude Code:
+Run in your terminal:
 
-```
-Install Pickle from github.com/adityaarsharma/pickle
+```bash
+curl -fsSL https://raw.githubusercontent.com/adityaarsharma/pickle/main/install-team.sh | bash
 ```
 
-Installs: `/pickle-clickup` · `/pickle-slack` (if Slack used) · `/pickle-update`
+Installs: `/pickle-clickup` · `/pickle-slack` · `/pickle-update`  
+(No team report — that's managers only.)
 
 Takes about 2 minutes. Connects ClickUp and optionally Slack.
 
