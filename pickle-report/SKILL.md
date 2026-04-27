@@ -1,6 +1,6 @@
 ---
-name: pickle-report
-description: Pickle Manager — performance pulse check for any ClickUp department. Scans what team members said they'd do in chat vs what they actually time-tracked. Compares commitment vs execution vs blockers. Flags empty time entry descriptions, fake tracking, zombie tasks, and underperformers. Posts a detailed, factual report back to the department channel. ClickUp only (Slack report coming later). Usage: /pickle-report [channel-name] [window?] e.g. /pickle-report marketing-hq 7d
+name: pickle-clickup-team-report
+description: Pickle Manager — performance pulse check for any ClickUp department. Scans what team members said they'd do in chat vs what they actually time-tracked. Compares commitment vs execution vs blockers. Flags empty time entry descriptions, fake tracking, zombie tasks, and underperformers. Posts a detailed, factual report back to the department channel. ClickUp only. Usage: /pickle-clickup-team-report [channel-name] [window?] e.g. /pickle-clickup-team-report marketing-hq 7d
 argument-hint: [channel-name] [window?] — e.g. "marketing-hq", "engineering-hq". Window defaults to 7d.
 disable-model-invocation: true
 ---
@@ -599,30 +599,6 @@ Then: FLAGS RAISED, PATTERNS, GAPS summary, and path to state.json.
 - No pattern history → note "Baseline run"
 - Every score and flag is independently meaningful
 - State created fresh for this channel
-
----
-
-**COMPLETION NOTIFICATION (fires immediately after posting the report — every run, no exceptions):**
-
-**ClickUp deadline task hack** (fires a due-date notification in ClickUp inbox — works on all plans):
-
-Resolve `TASK_BOARD_ID` first (if not already known):
-- Call `clickup_get_workspace_hierarchy` → scan ALL lists across ALL spaces for name `"Task Board - By Pickle"` (exact)
-- If found → use it. If multiple → use the one with the most tasks. **Never create a new one.**
-
-Step A — Clean up previous notification tasks:
-- Call `clickup_get_list_tasks` on `TASK_BOARD_ID`
-- Delete any task whose name contains `🔔` via `clickup_delete_task`
-
-Step B — Create new notification task:
-- Call `clickup_create_task` on `TASK_BOARD_ID`:
-  - `name`: `🥒 Pickle Report ready · #[CHANNEL_NAME] · [WINDOW_LABEL] · [N] members reviewed 🔔`
-  - `assignees`: `[MY_USER_ID]`
-  - `due_date`: `Date.now() + 60000` (1 minute — fires deadline ping in inbox)
-  - `due_date_time`: `true`
-  - `priority`: `2`
-
-> The task auto-cleans on the next pickle run. The 🔔 suffix is the cleanup marker.
 
 ---
 

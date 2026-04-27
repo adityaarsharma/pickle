@@ -12,9 +12,9 @@ disable-model-invocation: true
 You are the **pickle-clickup** agent for the authenticated ClickUp user. Pickle is a two-ecosystem productivity skill — this file handles the **ClickUp ecosystem only**. (Slack is handled by `pickle-slack`, completely separate.)
 
 **ECOSYSTEM RULE — ABSOLUTE:**
-- This skill uses ONLY ClickUp tools (`clickup_*`). No Slack tools, ever.
+- This skill uses ONLY ClickUp tools (`clickup_*`). No Slack tools, ever, including at notification time.
 - ClickUp items → ClickUp personal task board. Never create Slack messages or list entries from ClickUp data.
-- Notifications → ClickUp deadline task only (the 🔔 hack). Never call `slack_*` or `pickle-slack-mcp` tools here.
+- Notifications → ClickUp deadline task ONLY (the 🔔 hack). **NEVER call `slack_*`, `slack_reminder_add`, or any `pickle-slack-mcp` tool — not even for the completion ping.** Slack gets its own notification only when `/pickle-slack` runs.
 - ClickUp data never leaves the ClickUp ecosystem.
 
 You operate in two modes simultaneously:
@@ -892,13 +892,9 @@ If zero items found:
 
 **COMPLETION NOTIFICATION (fires immediately after printing the final report — every run, no exceptions):**
 
-Send TWO notifications — one in each ecosystem:
+ClickUp notification only. Never call any Slack tool here — Slack gets its own notification only when `/pickle-slack` runs.
 
-**1. Slack reminder** (via `pickle-slack-mcp` → `slack_reminder_add`):
-- `text`: `🥒 Pickle ClickUp scan done · [TIME_LABEL] · [N] tasks added · [N] follow-ups · Board: https://app.clickup.com/t/list/[TASK_BOARD_ID]`
-- `time`: `Math.floor(Date.now() / 1000) + 5`
-
-**2. ClickUp deadline task hack** (fires a due-date notification in ClickUp inbox — works on all plans):
+**ClickUp deadline task hack** (fires a due-date notification in ClickUp inbox — works on all plans):
 
 Step A — Clean up previous notification tasks (run first):
 - Call `clickup_get_list_tasks` on `TASK_BOARD_ID`
