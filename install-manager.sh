@@ -53,7 +53,7 @@ echo ""
 echo "⏳ [2/3] Installing skill files ..."
 mkdir -p "$SKILLS_DIR"
 
-for skill in pickle-clickup pickle-slack pickle-report pickle-update; do
+for skill in pickle-clickup pickle-update pickle-setup; do
   if [ -d "$TMPDIR/$skill" ]; then
     rm -rf "$SKILLS_DIR/$skill"
     cp -R "$TMPDIR/$skill" "$SKILLS_DIR/$skill"
