@@ -1,7 +1,7 @@
 ---
 name: pickle-slack
-description: Pickle for Slack — scans every Slack channel, DM, and group DM you're in for a given time window. Extracts messages where YOUR action is needed AND tracks work you delegated to others that needs follow-up. Creates entries in a dedicated Slack List (or Canvas fallback) + sets Slack reminders — all kept SEPARATE from any other tool. Usage: /pickle-slack [time] [followup] — e.g. /pickle-slack 24h | /pickle-slack 7d followup
-argument-hint: [time] [followup?] — e.g. 24h, 48h, 7d. Add "followup" to confirm + send follow-ups.
+description: "Pickle for Slack — scans every Slack channel, DM, and group DM you're in for a given time window. Extracts messages where YOUR action is needed AND tracks work you delegated to others that needs follow-up. Creates entries in a dedicated Slack List (or Canvas fallback) + sets Slack reminders — all kept SEPARATE from any other tool. Usage: /pickle-slack [time] [followup] — e.g. /pickle-slack 24h | /pickle-slack 7d followup"
+argument-hint: '[time] [followup?] — e.g. 24h, 48h, 7d. Add "followup" to confirm + send follow-ups.'
 disable-model-invocation: true
 ---
 
