@@ -156,6 +156,47 @@ Print: `📋 Task Board - By Pickle: [LIST_ID] — [cached ✓ / created fresh �
 
 ---
 
+## STEP 2.5 — LIST CLEANUP (runs every time, before scan)
+
+**Goal:** keep the Slack List lean across runs and roll forward in-progress items. Same hard rule as pickle-clickup: never close, delete, or archive a user-owned item — only auto-managed Pickle scaffolding (Complete entries past their grace window, yesterday's Today entries) gets touched.
+
+Call `slack_list_items_list` on `LIST_ID` once and reuse the result for the rest of Step 2.5 AND Step 7's dedupe pass (don't refetch).
+
+### A — Auto-delete old Complete entries (and purge state.json pointers)
+
+For every entry where:
+- `Status = "Complete"` AND `updated_at < now − 7 days`
+
+→ Call `slack_list_item_delete`. Collect the deleted `list_entry_id`s into `DELETED_ENTRY_IDS[]`.
+
+**Then purge state.json:**
+- Read `~/.claude/skills/pickle-slack/state.json`
+- For every entry in `actioned_messages` where `list_entry_id ∈ DELETED_ENTRY_IDS` → delete the entry
+- Write state.json back
+
+This guarantees Step 7 check #1 won't return a stale `list_entry_id` next run.
+
+### B — Roll yesterday's "Today" entries forward
+
+For every entry where:
+- `Status = "Today"` AND `Due < today midnight`
+
+→ Update Due to today (do NOT change status — they're still today's work).
+
+### C — Clean the immediate-fire completion reminders
+
+If reminders set in the previous run's Step 8.5 are still pending (rare — they should have fired in 30s) and older than 1 hour, mark them as known-skipped in state. Don't try to delete via Slack API — Slack doesn't expose reminder deletion reliably.
+
+Print:
+```
+🧹 List cleanup:
+  · [N] complete entries auto-deleted (7d+ old)
+  · [N] state.json pointers purged
+  · [N] yesterday's today entries rolled forward
+```
+
+---
+
 ## STEP 3 — DYNAMIC SOURCE DISCOVERY
 
 **Never use hardcoded IDs.** Cover every Slack surface a conversation can hit.
@@ -539,7 +580,7 @@ Final priority tier = base urgency tier → bumped one level UP if (importance_s
 
 ---
 
-## STEP 7 — CONTEXT MEMORY + DEDUPE
+## STEP 7 — CONTEXT MEMORY + DEDUPE + BUMP
 
 ### Context memory
 
@@ -551,19 +592,88 @@ Read `~/.claude/skills/pickle-slack/state.json` (create if missing):
       "list_entry_id": "...",
       "reminder_id": "...",
       "actioned_at": "2026-04-22T09:00:00Z",
+      "last_activity_seen": "2026-04-22T09:00:00Z",
       "kind": "inbox" | "followup"
     }
   }
 }
 ```
 
-Skip any message already in `actioned_messages` UNLESS new replies exist after `actioned_at`.
-
 **Stored:** channel IDs + `ts` + timestamps only. **No message text. No personal info.** Delete the file to reset.
 
-### Dedupe against Slack List
+**Field meanings:**
+- `actioned_at` — when Pickle first created/last bumped the list entry. Pickle-side checkpoint.
+- `last_activity_seen` — timestamp of the latest reply Pickle has incorporated. Updated on every successful create OR bump. Used to detect new activity for both bumping (status ≠ Complete) and re-creation (status = Complete).
 
-Query the Slack List for existing entries where `Source Link` matches the current message's permalink. Skip creating duplicates.
+### Compute "latest activity" per item
+
+Before evaluating each candidate, compute `LATEST_ACTIVITY_TS`:
+- For top-level messages: max(`message.ts`, latest reply `ts` from `conversations.replies`)
+- For thread replies: max(reply `ts`, parent `ts`)
+- For list assignments: `item.updated_at`
+
+### Decision tree — create / bump / skip
+
+For every qualifying item, check in this order:
+
+**1. Is `<channel_id>:<ts>` in `actioned_messages`?**
+
+**Yes** → fetch the list entry by `list_entry_id` (single `slack_list_items_list` call filtered by IDs, OR retrieve from cached items list returned by Step 7 dedupe):
+
+   - **Entry not found / deleted** (user manually deleted it): remove the state.json entry, fall through to step 2.
+
+   - **Entry status = "Complete"**:
+     - If `LATEST_ACTIVITY_TS > last_activity_seen` (new replies after you closed it) → create a NEW list entry. Update state.json to point at the new `list_entry_id` and refresh `actioned_at` + `last_activity_seen`. Optionally delete the old Complete entry to avoid clutter.
+     - Else → **SKIP**. The thread keeps re-appearing because it's still inside the scan window, but nothing new has happened since you marked it Complete. Print: `↩ Skipped (already complete, no new activity): [title]`
+
+   - **Entry status ≠ "Complete"**:
+     - If `LATEST_ACTIVITY_TS > last_activity_seen` → **BUMP** (see below).
+     - Else → **SKIP** (already on list, nothing new). Print: `· Already on list: [title]`
+
+**No** → check step 2.
+
+**2. Does a list entry already exist with matching `Source Link` (permalink)?**
+
+Call `slack_list_items_list` once at the start of Step 7 and cache the full list of entries (their IDs, `Source Link`, `Status` columns). For each candidate, scan the cache for a `source_link` match.
+
+   - **Found, status = "Complete"**:
+     - If `LATEST_ACTIVITY_TS > entry.updated_at` → create fresh, write state.json.
+     - Else → **SKIP**.
+
+   - **Found, status ≠ "Complete"** → **BUMP** the existing entry. Refresh state.json.
+
+   - **Not found** → **CREATE NEW** (Step 8). Then write state.json:
+     ```
+     state.actioned_messages["<channel_id>:<ts>"] = {
+       list_entry_id: <new_id>,
+       reminder_id: <new_reminder_id>,
+       actioned_at: <now>,
+       last_activity_seen: <LATEST_ACTIVITY_TS>,
+       kind: "inbox" | "followup"
+     }
+     ```
+
+### What "bump" means
+
+Update the existing list entry:
+- **Priority escalated?** → raise priority by 1 level via list-item update
+- **Due date passed?** → reset Due to today
+- Append to Quote field:
+  ```
+  ---
+  🔄 UPDATED [date] — [N] new replies since last scan
+  Latest: "[newest reply excerpt, max 100 chars]"
+  ```
+
+**After a successful bump, update state.json:**
+- `actioned_at` → `<now>`
+- `last_activity_seen` → `LATEST_ACTIVITY_TS`
+
+Print: `↑ Bumped: [title] — [reason]`
+
+### Self-heal: orphaned state entries
+
+At the END of Step 7, prune `state.actioned_messages` of any entry whose `list_entry_id` was not present in the Step 2 list-items cache (i.e. the entry was deleted manually or by Step 2.5 cleanup). Prevents state.json from growing forever with dead pointers.
 
 ---
 

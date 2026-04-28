@@ -231,19 +231,33 @@ Print: `📋 Task board: Task Board - By Pickle (ID: $TASK_BOARD_ID)`
 
 **HARD RULE: Never close, delete, or archive any task the user created or marked "to do" — those stay until the user marks them complete themselves. Only 🔔 notification tasks are auto-deleted (they are temporary by design).**
 
-### A — Remove Pickle notification tasks
+### A — Remove THIS skill's previous notification tasks only
+
+**⚠️ Coexistence rule:** pickle-clickup and pickle-report share `Task Board - By Pickle`. Both create 🔔 deadline notification tasks. To prevent one skill from deleting the other's just-created notification before the user sees it, each skill cleans only its own tag — never any 🔔 task indiscriminately.
+
+- pickle-clickup uses tag `pickle-clickup-notif`
+- pickle-report uses tag `pickle-report-notif`
 
 Call `clickup_get_list_tasks` on `TASK_BOARD_ID`. For tasks where:
-- name contains `🔔` AND `due_date < now`
+- name contains `🔔` AND `due_date < now` AND `tags` includes `"pickle-clickup-notif"`
 
 → Call `clickup_delete_task` on each. These are the 1-minute deadline notification tasks from the previous run — they are intentionally temporary.
 
-### B — Auto-delete old Complete tasks
+Do NOT delete 🔔 tasks tagged `pickle-report-notif` — those belong to pickle-report.
+
+### B — Auto-delete old Complete tasks (and purge state.json pointers)
 
 Call `clickup_get_list_tasks` with `statuses: ["complete"]` and `include_closed: true`. For tasks where:
 - `date_done < now − 7 days` (marked complete more than 7 days ago)
 
-→ Call `clickup_delete_task` on each.
+→ Call `clickup_delete_task` on each. Collect the deleted task IDs into `DELETED_TASK_IDS[]`.
+
+**Then purge `state.json` of pointers to those tasks:**
+- Read `~/.claude/skills/pickle-clickup/state.json`
+- For every entry in `actioned_messages` where `task_id ∈ DELETED_TASK_IDS` → delete the entry
+- Write state.json back
+
+This guarantees that on the next scan, Step 7 check #1 won't return a stale `task_id` that 404s. Without this purge, `state.json` accumulates dead pointers indefinitely and dedupe slowly degrades.
 
 **Never delete** tasks in any status other than `complete`.
 
@@ -384,12 +398,35 @@ Before scanning, compute and print an estimate so the user sees the cost:
 After collecting all messages, DO NOT paste the raw payloads into the main conversation. Instead:
 
 1. Before writing the new file, clean up old scratch: `find ~/.claude/skills/pickle-clickup/.scratch -name 'scan-*.json' -mtime +7 -delete 2>/dev/null` — removes scratch files older than 7 days so daily runs don't accumulate into a GB of old chat payloads over a year.
-2. Write collected messages to `~/.claude/skills/pickle-clickup/.scratch/scan-<timestamp>.json`
-2. Launch a general-purpose subagent via the `Task` tool with a prompt like:
-   > "Read `<scratch path>`. Apply the Step 5A inclusion filter (see pickle-clickup/SKILL.md) and the multilingual intent rules. Return only: (a) array of qualifying items with source_type, parent_name, user_id, content_excerpt ≤200 chars, reason_included. (b) empty array if none. Return as JSON. Under 2000 tokens."
-3. Main thread reads only the compact JSON back — never sees the raw messages
+2. Write collected messages to `~/.claude/skills/pickle-clickup/.scratch/scan-<timestamp>.json` — store the FULL raw payloads (every message object as returned by ClickUp), not a trimmed version. The subagent and Step 8 both depend on having the raw IDs available.
+3. Launch a general-purpose subagent via the `Task` tool. The prompt MUST be:
 
-This keeps main context lean so scans never burn through tokens on chat logs you'll never re-read.
+   > "Read `<scratch path>`. Apply the Step 5A inclusion filter and multilingual intent rules from `~/.claude/skills/pickle-clickup/SKILL.md`. Return ONLY items that qualify, as a JSON array.
+   >
+   > For EVERY qualifying item, preserve ALL of the following fields verbatim from the input — do NOT shorten, summarise, or drop any of them:
+   >
+   > - `source_type` (channel | dm | group_dm | task_comment | task_comment_reply | task_description | reminder | doc_mention | assigned_comment | delegated_comment)
+   > - `message_id` for chat OR `comment_id` for task comments OR synthetic id otherwise — **REQUIRED for SOURCE_URL construction in Step 8**
+   > - `parent_id` (channel_id for chat, task_id for comments, doc_id for docs) — **REQUIRED**
+   > - `parent_name` (channel name OR task name OR doc name) — **REQUIRED**
+   > - `parent_url` if already constructed in input
+   > - `user_id` (sender) — **REQUIRED**
+   > - `content` — the FULL message body up to 600 chars (NOT a 200-char excerpt). Step 8 needs a 1–3 sentence quote, so longer is better. Truncate only if > 600 chars and append `[truncated]`.
+   > - `date` (ISO 8601 or unix ms — whatever was in the input)
+   > - `thread_parent_id` (if this is a reply)
+   > - `reason_included` (1 short sentence — why this passed the filter)
+   >
+   > Return: empty array if nothing qualifies. JSON only, no prose. Cap output at 4000 tokens."
+
+4. Main thread reads the JSON. For every returned item, it now has the IDs needed to build `SOURCE_URL` (Step 8) and the full quote needed for the "💬 WHAT THEY SAID" block. Resolve `user_id → display_name` from `MEMBER_MAP` (already in memory), don't ask the subagent to do it.
+
+5. **Validation gate** — after parsing the subagent response, for every item assert:
+   - `message_id` OR `comment_id` is present (non-empty)
+   - `parent_id` is present
+   - `content` length ≥ 10 chars
+   If ANY item fails validation → re-fetch that item's raw record from the scratch file (still on disk) and use it directly. Never create a task with a missing source link.
+
+This keeps main context lean while guaranteeing Step 8 has everything it needs to write a proper task description with a working comment-deeplink.
 
 ### 4A — Chat channel messages (+ replies)
 
@@ -736,6 +773,7 @@ Read `~/.claude/skills/pickle-clickup/state.json` (create if missing):
     "<message_id>": {
       "task_id": "abc123",
       "actioned_at": "2026-04-22T09:00:00Z",
+      "last_activity_seen": "2026-04-22T09:00:00Z",
       "kind": "inbox"
     }
   }
@@ -744,21 +782,67 @@ Read `~/.claude/skills/pickle-clickup/state.json` (create if missing):
 
 **Stored:** message IDs + task IDs + timestamps only. **No message content. No personal info.** Delete the file to reset.
 
+**Field meanings:**
+- `actioned_at` — when Pickle first created/last bumped a task for this message. This is the **Pickle-side checkpoint** — used to decide if a complete task should be reopened.
+- `last_activity_seen` — timestamp of the latest reply/comment in the source thread that Pickle has already incorporated. Used to detect new activity for both bumping (status ≠ complete) and re-creation (status = complete). Updated on every successful create OR bump.
+
+### Compute "latest activity" for a candidate item (used by all branches below)
+
+Before running the decision tree on an item, compute `LATEST_ACTIVITY_TS`:
+
+- For chat messages: max(`message.date`, latest reply `date` in thread)
+- For task comments: max(`comment.date`, latest threaded-comment `date`, comment `date_updated` if available)
+- For task descriptions: `task.date_updated`
+- For reminders: `reminder.date`
+- For doc mentions: page `date_updated`
+
+This is the single timestamp the decision tree compares against `actioned_at` and `last_activity_seen`.
+
 ### Decision tree — create / bump / skip
 
 For every qualifying item from Step 6, check in this order:
 
-**1. Is `message_id` in `actioned_messages`?**
-- **Yes, task status = `complete`** → treat as fresh (they closed it, it came back). Create a new task.
-- **Yes, task status ≠ `complete`** AND no new replies since `actioned_at` → **skip** (already on board, nothing new).
-- **Yes, task status ≠ `complete`** AND new replies since `actioned_at` → **bump** the existing task (see below).
-- **No** → check step 2.
+**1. Is `message_id` (or `comment_id`) in `actioned_messages`?**
 
-**2. Does a task already exist on the board with a matching `message_id` link in its description?**
-(Call `clickup_get_list_tasks` on `TASK_BOARD_ID`, scan descriptions for the source URL.)
-- **Found, status = `complete`** → create fresh.
-- **Found, status ≠ `complete`** → **bump** the existing task (see below).
-- **Not found** → **create new** task (Step 8).
+**Yes** → call `clickup_get_task(stored task_id)`:
+
+   - **API returns 404 / not_found / archived** (task was deleted manually or by Step 2.5B cleanup):
+     → Remove this entry from `state.json` immediately. Fall through to Step 2 below. Do NOT create yet — let Step 2 do the board scan in case the user manually moved/recreated the task.
+
+   - **Task status = `complete`**:
+     - If `LATEST_ACTIVITY_TS > last_activity_seen` (new replies arrived AFTER you closed it) → create a NEW task (the conversation reopened). Mark the old one's description with `↩ SUPERSEDED by [new_task_id] — new activity arrived after close`. Update `state.json` to point at the new `task_id` and refresh `actioned_at` + `last_activity_seen`.
+     - Else (`LATEST_ACTIVITY_TS <= last_activity_seen`) → **SKIP**. You completed it, nothing new has happened since. The message just keeps re-appearing because it's still inside the scan window. Print: `↩ Skipped (already complete, no new activity): [task name]`
+
+   - **Task status ≠ `complete`**:
+     - If `LATEST_ACTIVITY_TS > last_activity_seen` → **BUMP** the existing task (see below).
+     - Else → **SKIP** (already on board, nothing new). Print: `· Already on board: [task name]`
+
+**No** → check step 2.
+
+**2. Does a task already exist on the board with a matching source URL in its description?**
+
+Call `clickup_get_list_tasks` on `TASK_BOARD_ID` with:
+- `include_closed: true`
+- `subtasks: true`
+- `archived: false`
+
+Scan every task's `description` (text_content) for the candidate item's `SOURCE_URL` (built per Step 8 — must be byte-for-byte the same shape, or contain the `message_id`/`comment_id` substring).
+
+   - **Found, status = `complete`**:
+     - If `LATEST_ACTIVITY_TS > task.date_done` → create fresh, mark old as superseded (same as branch above). Write new entry to `state.json`.
+     - Else → **SKIP**.
+
+   - **Found, status ≠ `complete`** → **BUMP** the existing task. Write/refresh `state.json` entry pointing at this `task_id`.
+
+   - **Not found** → **CREATE NEW** task (Step 8). Then write to `state.json`:
+     ```
+     state.actioned_messages[message_id_or_comment_id] = {
+       task_id: <new_id>,
+       actioned_at: <now>,
+       last_activity_seen: <LATEST_ACTIVITY_TS>,
+       kind: "inbox" | "followup"
+     }
+     ```
 
 ### What "bump" means
 
@@ -773,7 +857,17 @@ Call `clickup_update_task` on the existing `task_id`:
   ```
 - **Do NOT create a duplicate task.**
 
+**After a successful bump, update `state.json`:**
+- `actioned_at` → `<now>` (so escalation tone reflects how recently we touched it)
+- `last_activity_seen` → `LATEST_ACTIVITY_TS` (so the same replies don't keep triggering bumps on every scan)
+
 Print: `↑ Bumped: [task name] — [reason]`
+
+### Self-heal: orphaned state entries
+
+At the END of Step 7 (after processing all candidate items), do a one-shot cleanup pass:
+- For each entry in `state.actioned_messages` where the linked `task_id` no longer exists on the board (collected from the Step 2 list-fetch above), remove the entry.
+- This prevents `state.json` from growing forever with dead pointers, and guarantees that next run's Step 1 won't trip over stale 404s.
 
 ---
 
@@ -783,11 +877,23 @@ Print: `↑ Bumped: [task name] — [reason]`
 
 **Source link construction (REQUIRED for every task):**
 ```
-SOURCE_URL = [if chat message]  https://app.clickup.com/[WORKSPACE_ID]/chat/r/[channel_id]/t/[message_id]
-           = [if task comment]  https://app.clickup.com/t/[task_id]?comment=[comment_id]
-           = [if doc mention]   https://app.clickup.com/[WORKSPACE_ID]/docs/[doc_id]
+SOURCE_URL = [if chat message]      https://app.clickup.com/[WORKSPACE_ID]/chat/r/[channel_id]/t/[message_id]
+           = [if task comment]      https://app.clickup.com/t/[task_id]?comment=[comment_id]
+           = [if task comment reply] https://app.clickup.com/t/[task_id]?comment=[thread_parent_id]&reply=[comment_id]
+           = [if task description]  https://app.clickup.com/t/[task_id]
+           = [if doc mention]       https://app.clickup.com/[WORKSPACE_ID]/docs/[doc_id]
+           = [if reminder]          https://app.clickup.com/[WORKSPACE_ID]/notifications
 ```
 This is the 1-click jump back to the original message. **Never omit the source link.**
+
+**HARD VALIDATION before calling `clickup_create_task`:** Assert all of:
+1. `SOURCE_URL` is non-empty AND starts with `https://app.clickup.com/`
+2. The relevant ID (`message_id`, `comment_id`, `task_id`) is present in the URL
+3. The "💬 WHAT THEY SAID" block contains the actual message text (≥ 10 chars, not a placeholder like `[message]` or `[content]`)
+4. "From:" contains a real sender name (resolved from `MEMBER_MAP[user_id].username` or `.name`, not the raw user ID)
+5. "Date:" is human-readable (e.g. `2026-04-28 14:32 IST`), not a unix timestamp
+
+If any assertion fails → re-fetch the source record from the scratch file (`~/.claude/skills/pickle-clickup/.scratch/scan-*.json`) and rebuild the description. Do NOT create the task with a missing/placeholder field — that's the bug that broke comment linking + details. If the scratch record is also missing the IDs, log the failure to `~/.claude/skills/pickle-clickup/.scratch/missing-ids.log` and skip the item rather than create a broken task.
 
 **Board status order (REQUIRED — always use exactly these names):**
 
@@ -966,9 +1072,10 @@ ClickUp notification only. Never call any Slack tool here — Slack gets its own
 
 **ClickUp deadline task hack** (fires a due-date notification in ClickUp inbox — works on all plans):
 
-Step A — Clean up previous notification tasks (run first):
+Step A — Clean up THIS skill's previous notification tasks (run first):
 - Call `clickup_get_list_tasks` on `TASK_BOARD_ID`
-- Delete any task whose name contains `🔔` via `clickup_delete_task`
+- Delete any task where `name` contains `🔔` AND `tags` includes `"pickle-clickup-notif"` via `clickup_delete_task`
+- **Never delete** 🔔 tasks tagged `pickle-report-notif` — those belong to pickle-report.
 
 Step B — Create new notification task:
 - Call `clickup_create_task` on `TASK_BOARD_ID`:
@@ -977,8 +1084,9 @@ Step B — Create new notification task:
   - `due_date`: `Date.now() + 60000` (1 minute — fires deadline ping in inbox)
   - `due_date_time`: `true`
   - `priority`: `2`
+  - `tags`: `["pickle", "pickle-clickup", "pickle-clickup-notif"]`
 
-> The task auto-cleans on the next pickle run. The 🔔 suffix is the cleanup marker — never use it for real tasks.
+> The task auto-cleans on the next pickle-clickup run (tag-scoped). The 🔔 suffix is the cleanup marker — never use it for real tasks.
 
 ---
 

@@ -149,7 +149,7 @@ Also call `clickup_get_task_comments` for each task → collect self-comments fr
 
 Batch 8 in parallel. Skip the `clickup_get_task` call for any task that is cache-fresh (date_updated_ms unchanged).
 
-### 4D — TIME ENTRIES PER MEMBER ⭐ (critical step)
+### 4D — TIME ENTRIES PER TASK ⭐ (critical step)
 
 **TRULY DONE DEFINITION (three-part standard):**
 A task is only TRULY DONE when ALL three are true:
@@ -173,41 +173,50 @@ After computing time_spent per task, evaluate proportionality:
 Note: Time entry descriptions (per-session notes) vs task description are separate checks. Both matter.
 NEVER include salary, revenue, employment/leaving plans, or personal status in the channel report.
 
+**HOW TO FETCH TIME ENTRIES:**
 
-For each member, call the ClickUp Time Tracking API:
-
+For each task collected in Step 4B/4C, call:
 ```
-GET https://api.clickup.com/api/v2/team/{WORKSPACE_ID}/time_entries
-  ?start_date={TIME_CUTOFF_MS}
-  &end_date={Date.now()}
-  &assignee={member.id}
+clickup_get_task_time_entries(task_id)
 ```
 
-**If this endpoint is not available via MCP** → use `clickup_filter_tasks` time_spent_ms as a proxy. Note in report: "Individual time entry descriptions could not be verified — team should ensure all time entries include descriptions."
-
-For each time entry returned:
-```
+This returns `data[]` — each entry is a user + their `intervals[]`. Each interval has:
+```json
 {
-  id, task_id, task_name,
-  duration_ms,
-  description: string (the time entry note),
-  start_ms, end_ms
+  "id": "...",
+  "start": "unix_ms_string",
+  "end": "unix_ms_string",
+  "time": "duration_ms_string",
+  "description": "what the person wrote for this session",
+  "source": "clickup"
 }
 ```
+
+**Filter to window:** Only include intervals where `parseInt(start) >= TIME_CUTOFF_MS`.
+
+**Filter to assignee:** Only include entries where `user.id == member.id`.
+
+**Batch 8 task calls in parallel.** Only call for tasks where `time_spent_ms > 0` (skip zero-time tasks).
 
 **Build per member:**
 ```
 TIME_ENTRIES[user_id] = [
-  { task_id, task_name, duration_ms, description, has_description: desc.trim().length > 3 }
+  {
+    task_id, task_name,
+    interval_id, duration_ms: parseInt(interval.time),
+    description: interval.description || "",
+    has_description: (interval.description || "").trim().length > 3,
+    start_ms: parseInt(interval.start)
+  }
 ]
 
-TOTAL_TRACKED_MS[user_id] = sum(duration_ms)
+TOTAL_TRACKED_MS[user_id] = sum(duration_ms) for intervals in window
 ENTRIES_WITHOUT_DESC[user_id] = entries where has_description == false
 ```
 
 **This is the primary evidence layer.** A standup claim is only VERIFIED if:
-- Time was tracked in the window on a matching task
-- The time entry has a meaningful description (not empty, not ".", not a single word)
+- Time was tracked in the window on a matching task (interval in window found)
+- The time entry interval has a meaningful description (not empty, not ".", not a single word)
 
 ---
 
@@ -489,9 +498,17 @@ Resolve `TASK_BOARD_ID` first (if not already known):
 - Call `clickup_get_workspace_hierarchy` → scan ALL lists across ALL spaces for name `"Task Board - By Pickle"` (exact match)
 - If found → use it. If multiple → use the one with the most tasks. **Never create a new one.**
 
-**Step A — Clean up previous notification tasks:**
+**⚠️ Coexistence rule:** pickle-clickup and pickle-report share the same `Task Board - By Pickle`. Both create a 🔔 deadline notification task at the end of their run. To prevent one skill from deleting the other's just-created 🔔 before the user sees it, each skill cleans ONLY its own tag — never any 🔔 task indiscriminately.
+
+- pickle-clickup uses tag `pickle-clickup-notif`
+- pickle-report uses tag `pickle-report-notif`
+- pickle-slack lives in Slack and never touches this list
+
+**Step A — Clean up THIS skill's previous notification tasks only:**
 - Call `clickup_get_list_tasks` on `TASK_BOARD_ID`
-- Delete any task whose name contains `🔔` via `clickup_delete_task`
+- Delete tasks where `name contains 🔔` AND `tags` includes `"pickle-report-notif"` via `clickup_delete_task`
+
+Do NOT delete 🔔 tasks tagged `pickle-clickup-notif` — those belong to the other skill.
 
 **Step B — Create notification task:**
 Call `clickup_create_task` on `TASK_BOARD_ID`:
@@ -500,8 +517,9 @@ Call `clickup_create_task` on `TASK_BOARD_ID`:
 - `due_date`: `Date.now() + 60000` (1 minute — fires deadline ping in ClickUp inbox)
 - `due_date_time`: `true`
 - `priority`: `2`
+- `tags`: `["pickle", "pickle-report", "pickle-report-notif"]`
 
-The 🔔 suffix is the cleanup marker — removed on the next pickle run. **Do NOT fall back to any Slack tool.**
+The 🔔 suffix + `pickle-report-notif` tag combine as the cleanup marker — removed on the next pickle-report run. **Do NOT fall back to any Slack tool.**
 
 ---
 
@@ -545,6 +563,15 @@ Write to `~/.claude/pickle/memory/report-memory.json`:
 
 **Prune entries older than 90 days** from flag_history to keep the file lean.
 
+**Prune resolved zombies from `known_zombie_ids[]`:** After updating `known_flags`, remove from `known_zombie_ids[]` any task ID where:
+- The task is no longer in the open/zombie set this run, AND
+- Its `known_flags[task_id].resolved_at` is set, OR
+- The task ID returned 404 / archived in this run's `clickup_get_task` call (member completed and deleted it)
+
+Without this prune, completed zombies keep getting flagged as "recurring zombie (first seen [date])" forever — a stale signal that punishes already-resolved work.
+
+**Drop departed members:** At the end of Step 12B, compare `state.json[CHANNEL_NAME].members` against `ALL_MEMBERS` resolved this run. For any `user_id` that was NOT in the channel roster for the last 3 consecutive runs, archive its block under a `_departed` key with `last_seen_run` timestamp. Keep `_departed` for 6 months for audit, then delete. Otherwise state.json grows forever as people rotate.
+
 ---
 
 ## STEP 13 — PRINT LOCAL SUMMARY
@@ -564,7 +591,7 @@ Then: FLAGS RAISED, PATTERNS, GAPS summary, and path to state.json.
 
 | Scenario | Action |
 |----------|--------|
-| Time entries API not in MCP | Use task time_spent as proxy. Note limitation in report. Flag to add endpoint. |
+| `clickup_get_task_time_entries` fails for a task | Fall back to task `time_spent_ms` as total, mark entry descriptions as "unavailable for this task" |
 | Channel not found | List available, suggest closest, stop |
 | Member has no data at all | "No data in window — check if active in this channel" + flag |
 | Rate limit | Wait 2s, retry once |
@@ -583,14 +610,8 @@ Then: FLAGS RAISED, PATTERNS, GAPS summary, and path to state.json.
 - `clickup_filter_tasks`
 - `clickup_get_task`
 - `clickup_get_task_comments`
+- `clickup_get_task_time_entries` ← **per-task time intervals with session descriptions** (`GET /api/v2/task/{id}/time`)
 - `clickup_send_chat_message`
-
-**Needed but not yet in MCP — add to roadmap:**
-- ClickUp Time Tracking API: `GET /api/v2/team/{team_id}/time_entries?start_date=&end_date=&assignee=`
-  - Returns individual time entries with `description`, `duration`, `task_id` per session
-  - This is the PRIMARY data source for verifying actual work done
-  - Without this, time entry description checks are impossible
-  - **Priority: HIGH** — add this tool to pickle-mcp or request in ClickUp MCP
 
 ---
 
