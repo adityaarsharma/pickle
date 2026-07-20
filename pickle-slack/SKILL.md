@@ -22,7 +22,7 @@ You operate in two modes simultaneously:
 **Mode A — Inbox:** What needs MY attention (mentions, DMs awaiting reply, blockers)
 **Mode B — Follow-up:** What I asked others in Slack that hasn't been delivered yet
 
-**Requirement:** Pickle's hosted MCP must be connected with `x-slack-token` (xoxp-…) set in the headers block. Slack's API is free on every plan — your user-token's scopes need to include: `channels:history`, `groups:history`, `im:history`, `mpim:history`, `channels:read`, `groups:read`, `im:read`, `mpim:read`, `users:read`, `chat:write`, `im:write`, `search:read`, `reminders:write`, `lists:read`, `lists:write`.
+**Requirement:** Pickle must be installed locally with `SLACK_TOKEN` (xoxp-…) set in its `env` block. Slack's API is free on every plan — your user-token's scopes need to include: `channels:history`, `groups:history`, `im:history`, `mpim:history`, `channels:read`, `groups:read`, `im:read`, `mpim:read`, `users:read`, `chat:write`, `im:write`, `search:read`, `reminders:write`, `lists:read`, `lists:write`.
 
 ### Pre-flight: if no Slack tool is available
 
@@ -32,22 +32,23 @@ If a `slack_*` tool call returns "tool not available" — or the tools aren't su
 ❌ Slack not connected.
 
 Quick checklist:
-  1. Open your Pickle welcome email from pickle@adityaarsharma.com.
-  2. Confirm `x-slack-token` is set in the `pickle` MCP block in ~/.claude.json
-     (your xoxp-… user token, not a bot token).
+  1. Install Pickle locally:
+       git clone https://github.com/adityaarsharma/pickle.git
+       cd pickle && ./install.sh
+  2. Confirm SLACK_TOKEN is set in the "env" block of the `pickle` entry
+     in ~/.claude.json (your xoxp-… user token, not a bot token).
   3. Quit Claude Code (Cmd+Q) and reopen.
   4. Re-run /pickle-slack.
 
-No welcome email? Re-issue at https://pickle.adityaarsharma.com (free in Beta).
-Don't have an xoxp- yet? Ask Pickle in chat: "Pickle set me up for Slack" —
-  the hosted setup wizard walks you through the token capture step by step.
+Don't have an xoxp- yet? Create a Slack app, add the scopes listed above,
+  install it to your workspace, and copy the user token.
 ```
 
 Then stop.
 
-**If `x-slack-token` is set but a `slack_*` call returns a token-error** (`invalid_auth`, `account_inactive`, `token_revoked`), the token is dead. Regenerate at your Slack app or in chat ("Pickle set me up for Slack"), update the header, restart.
+**If `SLACK_TOKEN` is set but a `slack_*` call returns a token-error** (`invalid_auth`, `account_inactive`, `token_revoked`), the token is dead. Regenerate it in your Slack app settings, update the `env` block, restart.
 
-**Privacy:** Your Slack token travels in the HTTPS header to Pickle's hosted MCP at `pickle.adityaarsharma.com/mcp`, is used to call slack.com on your behalf, then is discarded. Server stores no tokens, no message bodies, no logs. Pickle will never post in a public channel on your behalf — only DMs to recipients you explicitly confirm, plus entries in your own private Slack List/Canvas. Audit: [server-remote/server.mjs](https://github.com/adityaarsharma/pickle/blob/main/server-remote/server.mjs).
+**Privacy:** Pickle runs on your machine. Your Slack token stays in your local MCP config and is used to call slack.com directly from your computer — there is no Pickle server in the path, so nothing is stored or logged by us. Pickle will never post in a public channel on your behalf — only DMs to recipients you explicitly confirm, plus entries in your own private Slack List/Canvas. Audit: [server-remote/server.mjs](https://github.com/adityaarsharma/pickle/blob/main/server-remote/server.mjs).
 
 ---
 
@@ -151,7 +152,7 @@ Also check legacy keys `"Pickle Inbox"`, `"My Task Board — Made from Pickle"`,
 
 If the tool returns `{ list_id: null }` — Slack Lists API not available. Report error, do not fall back to DM.
 
-**⚠️ IMPORTANT: Pickle's hosted MCP must be connected with `x-slack-token` set in the headers block (in `mcpServers.pickle` in `~/.claude.json`). If tools are missing, point user to the welcome email + the Pre-flight checklist above.**
+**⚠️ IMPORTANT: Pickle must be installed with `SLACK_TOKEN` set in the `env` block of `mcpServers.pickle` in `~/.claude.json`. If tools are missing, point the user at the Pre-flight checklist above.**
 
 Print: `📋 Task Board - By Pickle: [LIST_ID] — [cached ✓ / created fresh ✓] — private ✓`
 
@@ -896,7 +897,7 @@ If zero items: text = `🥒 Pickle Slack · All clear in [TIME_LABEL] — nothin
 
 **VERSION CHECK — REMOVED in v1.2.0.**
 
-Pickle is now hosted. The server at `pickle.adityaarsharma.com/mcp` is always-latest; nothing to compare against on the user's machine. The `serverInfo.version` field in the MCP `initialize` response is the source of truth if it ever needs to be shown. Skills do not phone-home for version checks.
+Pickle runs locally, so the user updates it with `git pull`. The `serverInfo.version` field in the MCP `initialize` response is the source of truth if a version ever needs to be shown. Skills never phone home for version checks.
 
 Remove any `[UPDATE_LINE_IF_NEWER]` placeholder from output — print nothing.
 

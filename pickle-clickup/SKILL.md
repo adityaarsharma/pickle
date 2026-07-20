@@ -49,34 +49,34 @@ You operate in two modes simultaneously:
 **Mode A — Inbox:** What needs MY attention (decisions, approvals, replies people are waiting on)
 **Mode B — Follow-up:** What I asked others to do that hasn't been confirmed/completed yet
 
-**Requirement:** Pickle's hosted MCP must be connected — config block from your welcome email pasted into `~/.claude.json` (or your MCP host's equivalent) with both `x-pickle-key` and `x-clickup-token` set in the headers.
+**Requirement:** Pickle must be installed locally and `CLICKUP_API_KEY` set in its `env` block in `~/.claude.json` (or your MCP host's equivalent). `./install.sh` writes this for you.
 
 ### Pre-flight: if no ClickUp tool is available
 
-If a `clickup_*` tool call returns "tool not available" / "unknown tool" — or the tools simply aren't surfaced in your session — the hosted MCP isn't connected for this project. Print to the user:
+If a `clickup_*` tool call returns "tool not available" / "unknown tool" — or the tools simply aren't surfaced in your session — Pickle isn't connected for this project. Print to the user:
 
 ```
 ❌ ClickUp not connected.
 
 Quick checklist:
-  1. Open your Pickle welcome email from pickle@adityaarsharma.com.
-  2. Paste the `pickle` MCP block into ~/.claude.json under "mcpServers"
-     — confirm both x-pickle-key AND x-clickup-token are set.
+  1. Clone and install:
+       git clone https://github.com/adityaarsharma/pickle.git
+       cd pickle && ./install.sh
+  2. Confirm the `pickle` entry exists in ~/.claude.json under "mcpServers",
+     with CLICKUP_API_KEY set in its "env" block.
   3. Quit Claude Code (Cmd+Q) and reopen.
   4. Re-run /pickle-clickup.
 
-No welcome email? Re-issue at https://pickle.adityaarsharma.com (free in Beta).
-Questions? pickle@adityaarsharma.com
+Prefer to wire it by hand? See docs/manual-install.md in the repo.
 ```
 
 Then stop. Don't proceed to scanning.
 
-**If `x-pickle-key` is set but a call returns auth-error**, the key is wrong/revoked — point user to re-issue at the landing page.
-**If `x-clickup-token` is set but a `clickup_*` call returns a token-error**, regenerate `pk_…` at app.clickup.com → Settings → Apps → ClickUp API, update the header, restart Claude Code.
+**If `CLICKUP_API_KEY` is set but a `clickup_*` call returns a token-error**, the token is wrong or revoked — regenerate `pk_…` at app.clickup.com → Settings → Apps → ClickUp API, update the `env` block, restart Claude Code.
 
 **If a different MCP connector is loaded that looks similar but isn't ClickUp** (e.g. Asana has `get_portfolios`, `get_projects`, `get_tasks` — Asana is NOT ClickUp), say so explicitly and don't confuse the two.
 
-**Privacy:** Your ClickUp token travels in the HTTPS header to Pickle's hosted MCP at `pickle.adityaarsharma.com/mcp`, is used to call api.clickup.com on your behalf, then is discarded. The server stores no tokens, no task data, no chat content, no logs of message bodies. Audit: [server-remote/server.mjs](https://github.com/adityaarsharma/pickle/blob/main/server-remote/server.mjs).
+**Privacy:** Pickle runs on your machine. Your ClickUp token stays in your local MCP config and is used to call api.clickup.com directly from your computer — there is no Pickle server in the path, so nothing is stored, logged, or leaked by us. Audit: [server-remote/server.mjs](https://github.com/adityaarsharma/pickle/blob/main/server-remote/server.mjs).
 
 ---
 
@@ -1316,6 +1316,6 @@ Step B — Create new notification task:
 
 **VERSION CHECK — REMOVED in v1.2.0.**
 
-Pickle is now hosted. The server at `pickle.adityaarsharma.com/mcp` is always-latest; there's nothing to compare against on the user's machine. The `serverInfo.version` field in the MCP `initialize` response tells the client what's deployed if it ever needs to display it. Skills do not phone-home for version checks.
+Pickle runs locally, so the user updates it with `git pull`. The `serverInfo.version` field in the MCP `initialize` response tells the client what's deployed if it ever needs to display it. Skills do not phone-home for version checks.
 
 Remove any `[UPDATE_LINE_IF_NEWER]` placeholder from output — print nothing.

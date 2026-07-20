@@ -36,7 +36,7 @@ You operate in two modes simultaneously:
 **Mode A — Inbox:** What needs MY attention (mentions, unanswered DMs, approvals, blockers)
 **Mode B — Follow-up:** What I asked others in Teams that hasn't been delivered/confirmed yet
 
-**Requirement:** Pickle's hosted MCP must be connected with `x-teams-token` set in the headers block — a Microsoft Graph access token. Microsoft Graph itself is free on every Microsoft 365 plan. Token can come from Azure AD app + device flow, or Graph Explorer for quick tests. (For long-lived auth: refresh-token + client-id combo stored locally at `~/.claude/pickle/teams-config.json`, used by the helper refresh routine — see Appendix A.)
+**Requirement:** Pickle must be installed locally with `TEAMS_TOKEN` set in its `env` block — a Microsoft Graph access token. Microsoft Graph itself is free on every Microsoft 365 plan. Token can come from Azure AD app + device flow, or Graph Explorer for quick tests. (For long-lived auth: refresh-token + client-id combo stored locally at `~/.claude/pickle/teams-config.json`, used by the helper refresh routine — see Appendix A.)
 
 ### Pre-flight: if no Teams tool is available
 
@@ -46,21 +46,24 @@ If a `teams_*` tool call returns "tool not available" — or the tools aren't su
 ❌ Microsoft Teams not connected.
 
 Quick checklist:
-  1. Open your Pickle welcome email from pickle@adityaarsharma.com.
-  2. Confirm `x-teams-token` is set in the `pickle` MCP block in ~/.claude.json
-     (a Microsoft Graph access token — Bearer-ready, no "Bearer " prefix).
+  1. Install Pickle locally:
+       git clone https://github.com/adityaarsharma/pickle.git
+       cd pickle && ./install.sh
+  2. Confirm TEAMS_TOKEN is set in the "env" block of the `pickle` entry
+     in ~/.claude.json (a Microsoft Graph access token — Bearer-ready,
+     no "Bearer " prefix).
   3. Quit Claude Code (Cmd+Q) and reopen.
   4. Re-run /pickle-teams.
 
-Don't have a Graph token yet? Ask Pickle in chat: "Pickle set me up for Teams" —
-  the hosted setup wizard walks you through Azure AD app or Graph Explorer.
+Don't have a Graph token yet? Use an Azure AD app + device flow, or grab a
+  short-lived one from Graph Explorer for a quick test. See Appendix A.
 ```
 
 Then stop.
 
-**If `x-teams-token` is set but a `teams_*` call returns 401**, the token expired (Graph access tokens last ~1 hour). Refresh via the routine in Appendix A, or grab a fresh one from Graph Explorer for ad-hoc tests.
+**If `TEAMS_TOKEN` is set but a `teams_*` call returns 401**, the token expired (Graph access tokens last ~1 hour). Refresh via the routine in Appendix A, or grab a fresh one from Graph Explorer for ad-hoc tests.
 
-**Privacy:** Your Microsoft Graph token travels in the HTTPS header to Pickle's hosted MCP at `pickle.adityaarsharma.com/mcp`, is used to call graph.microsoft.com on your behalf, then is discarded. Server stores no tokens, no message bodies, no logs. Pickle will never post in a public Teams channel — only replies in existing threads or direct chats you confirm. Audit: [server-remote/server.mjs](https://github.com/adityaarsharma/pickle/blob/main/server-remote/server.mjs).
+**Privacy:** Pickle runs on your machine. Your Graph token stays in your local MCP config and is used to call graph.microsoft.com directly from your computer — there is no Pickle server in the path, so nothing is stored or logged by us. Pickle will never post in a public Teams channel — only replies in existing threads or direct chats you confirm. Audit: [server-remote/server.mjs](https://github.com/adityaarsharma/pickle/blob/main/server-remote/server.mjs).
 
 ---
 
