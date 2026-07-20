@@ -1,0 +1,50 @@
+# Remote server — public source for enterprise audit transparency (since v1.1.0).
+# Runtime state and secrets stay private:
+server-remote/data/
+server-remote/.env
+server-remote/.env.*
+server-remote/node_modules/
+server-remote/*.log
+server-remote/usage.json
+server-remote/signups.json
+
+# Node dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Pickle runtime state — personal data, not for the repo
+# These are auto-created on first run by each skill
+pickle-clickup/state.json
+pickle-slack/state.json
+pickle-teams/state.json
+pickle-me/state.json
+pickle-me/memory/
+
+# Shared cache — ClickUp workspace/task data, rebuilt on each run
+# Contains real member names, task details, channel data — never commit
+pickle-cache/workspace.json
+pickle-cache/tasks.json
+pickle-cache/report-memory.json
+
+# Scratch files created during scans
+pickle-clickup/.scratch/
+pickle-slack/.scratch/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+.env
+
+*.bak-*

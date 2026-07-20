@@ -1,0 +1,20 @@
+{
+  "name": "@pickle/mcp-remote",
+  "version": "3.0.0",
+  "description": "Pickle hosted MCP server \u2014 stateless, privacy-first, token-per-request.",
+  "type": "module",
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs",
+    "start:dev": "PORT=3040 node --watch server.mjs"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "private": true,
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.9.0",
+    "express": "^4.21.0",
+    "zod": "^3.23.8"
+  }
+}
