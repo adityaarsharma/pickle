@@ -94,27 +94,26 @@ function validateLicenseKey(key) {
 }
 
 // ---------------------------------------------------------------------------
-// Local build: no freemium cap — any window works.
+// Local build: no window cap - any look-back works.
 // ---------------------------------------------------------------------------
 
-const FREE_TIER_MAX_WINDOW_MS = 3650 * 24 * 60 * 60 * 1000; // effectively unlimited (local)
-const PRO_COMING_SOON_NOTE = null;
+const MAX_WINDOW_MS = 3650 * 24 * 60 * 60 * 1000; // effectively unlimited (local)
 
 // Parse a window string like "1h", "6h", "1d", "3d", "7d" into milliseconds.
 // Returns { ms, clamped, original } so callers can surface a note when clamped.
 function parseTimeWindow(input) {
   if (input === undefined || input === null || input === "") {
-    return { ms: FREE_TIER_MAX_WINDOW_MS, clamped: false, original: "7d" };
+    return { ms: MAX_WINDOW_MS, clamped: false, original: "7d" };
   }
   const m = String(input).trim().toLowerCase().match(/^(\d+)\s*([hd])$/);
   if (!m) {
-    return { ms: FREE_TIER_MAX_WINDOW_MS, clamped: true, original: String(input) };
+    return { ms: MAX_WINDOW_MS, clamped: true, original: String(input) };
   }
   const n = Number(m[1]);
   const unit = m[2];
   const ms = unit === "h" ? n * 60 * 60 * 1000 : n * 24 * 60 * 60 * 1000;
-  if (ms > FREE_TIER_MAX_WINDOW_MS) {
-    return { ms: FREE_TIER_MAX_WINDOW_MS, clamped: true, original: String(input) };
+  if (ms > MAX_WINDOW_MS) {
+    return { ms: MAX_WINDOW_MS, clamped: true, original: String(input) };
   }
   return { ms, clamped: false, original: String(input) };
 }
@@ -132,7 +131,7 @@ function applyWindowCap(args, kind = "updated") {
     args: { ...args, [key]: finalFloor },
     clamped: tw.clamped,
     window_used: tw.original === "7d" && !args.time_window ? "7d (default)" : tw.original,
-    pro_note: tw.clamped ? PRO_COMING_SOON_NOTE : null,
+    note: null,
   };
 }
 
@@ -846,7 +845,7 @@ function createPickleServer(ctxOrLegacyToken, legacyPickleKey = "") {
       description: "Get tasks in a specific list, scoped to the audit time window (default last 7 days; pass any window). Supports pagination, filters, custom fields. Use the `time_window` parameter ('1h'|'6h'|'1d'|'3d'|'7d') to scope the audit.",
       inputSchema: z.object({
         list_id: z.string().min(1),
-        time_window: z.string().optional().describe("Audit window: '1h', '6h', '1d', '3d', or '7d' (default). Free tier caps at 7d."),
+        time_window: z.string().optional().describe("Audit window: '1h', '6h', '1d', '3d', or '7d' (default). Runs locally, so there is no cap - pass any window."),
         archived: z.boolean().optional(),
         include_markdown_description: z.boolean().optional(),
         page: z.number().int().min(0).optional(),
@@ -890,7 +889,7 @@ function createPickleServer(ctxOrLegacyToken, legacyPickleKey = "") {
         const result = await clickupFetch("GET", `/api/v2/list/${encodeURIComponent(list_id)}/task`, { query });
         return {
           ...result,
-          _audit: { window_used: capped.window_used, pro_note: capped.pro_note },
+          _audit: { window_used: capped.window_used, note: capped.note },
         };
       },
     },
@@ -1088,7 +1087,7 @@ function createPickleServer(ctxOrLegacyToken, legacyPickleKey = "") {
       description: "Filter workspace tasks for audits. Scoped to the audit time window (default last 7 days; pass any window). Pass `time_window` ('1h'|'6h'|'1d'|'3d'|'7d') to scope the audit. Supports assignees, watchers, dates, search text, statuses, tags, list/folder/space filters, and pagination. Use response_format='summary' (default) for compact results.",
       inputSchema: z.object({
         team_id: z.string().optional(),
-        time_window: z.string().optional().describe("Audit window: '1h', '6h', '1d', '3d', or '7d' (default). Free tier caps at 7d."),
+        time_window: z.string().optional().describe("Audit window: '1h', '6h', '1d', '3d', or '7d' (default). Runs locally, so there is no cap - pass any window."),
         assignees: z.array(z.union([z.string(), z.number()])).optional(),
         watchers: z.array(z.union([z.string(), z.number()])).optional(),
         search: z.string().optional().describe("Full-text search across task name and description."),
@@ -1146,7 +1145,7 @@ function createPickleServer(ctxOrLegacyToken, legacyPickleKey = "") {
           last_page: data?.last_page ?? null,
           page: args.page ?? 0,
           format,
-          _audit: { window_used: capped.window_used, pro_note: capped.pro_note },
+          _audit: { window_used: capped.window_used, note: capped.note },
         };
       },
     },
@@ -1618,7 +1617,7 @@ function createPickleServer(ctxOrLegacyToken, legacyPickleKey = "") {
       description: "Get messages from a Slack channel scoped to the audit time window (default last 7 days; pass any window). Returns ts, user, text, reply_count, reactions. Pass `time_window` ('1h'|'6h'|'1d'|'3d'|'7d').",
       inputSchema: z.object({
         channel: z.string().min(1).describe("Channel ID (e.g. 'C0123ABCDEF'). Use slack_list_channels to find it."),
-        time_window: z.string().optional().describe("Audit window: '1h', '6h', '1d', '3d', or '7d' (default). Free tier caps at 7d."),
+        time_window: z.string().optional().describe("Audit window: '1h', '6h', '1d', '3d', or '7d' (default). Runs locally, so there is no cap - pass any window."),
         limit: z.number().int().min(1).max(1000).optional().default(200),
         cursor: z.string().optional(),
         inclusive: z.boolean().optional().default(true),
@@ -1646,7 +1645,7 @@ function createPickleServer(ctxOrLegacyToken, legacyPickleKey = "") {
           messages,
           has_more: !!r.has_more,
           response_metadata: r.response_metadata || null,
-          _audit: { window_used: tw.original, pro_note: tw.clamped ? PRO_COMING_SOON_NOTE : null },
+          _audit: { window_used: tw.original, note: null },
         };
       },
     },
@@ -1704,7 +1703,7 @@ function createPickleServer(ctxOrLegacyToken, legacyPickleKey = "") {
       description: "Full-text search Slack messages (user token only, search:read scope required). Returns ranked matches with channel, user, ts, text. Useful for audits like 'find every message containing shipping today' or '@mention X without follow-up'.",
       inputSchema: z.object({
         query: z.string().min(1).describe("Slack search query. Supports operators like `in:#channel`, `from:@user`, `before:2026-05-10`."),
-        time_window: z.string().optional().describe("Audit window appended as `after:<date>` if not already in query. Free tier caps at 7d."),
+        time_window: z.string().optional().describe("Audit window appended as `after:<date>` if not already in query. Runs locally, so there is no cap - pass any window."),
         count: z.number().int().min(1).max(100).optional().default(50),
         sort: z.enum(["score", "timestamp"]).optional().default("timestamp"),
       }),
@@ -1727,7 +1726,7 @@ function createPickleServer(ctxOrLegacyToken, legacyPickleKey = "") {
         return {
           matches, total: r.messages?.total ?? matches.length,
           query_used: q,
-          _audit: { window_used: tw.original, pro_note: tw.clamped ? PRO_COMING_SOON_NOTE : null },
+          _audit: { window_used: tw.original, note: null },
         };
       },
     },
@@ -1777,7 +1776,7 @@ function createPickleServer(ctxOrLegacyToken, legacyPickleKey = "") {
       inputSchema: z.object({
         team_id: z.string().min(1),
         channel_id: z.string().min(1),
-        time_window: z.string().optional().describe("'1h', '6h', '1d', '3d', or '7d' (default). Free tier caps at 7d."),
+        time_window: z.string().optional().describe("'1h', '6h', '1d', '3d', or '7d' (default). Runs locally, so there is no cap - pass any window."),
         top: z.number().int().min(1).max(50).optional().default(50),
       }),
       async handler(rawArgs) {
@@ -1798,7 +1797,7 @@ function createPickleServer(ctxOrLegacyToken, legacyPickleKey = "") {
         return {
           messages,
           since: sinceIso,
-          _audit: { window_used: tw.original, pro_note: tw.clamped ? PRO_COMING_SOON_NOTE : null },
+          _audit: { window_used: tw.original, note: null },
         };
       },
     },
@@ -1846,7 +1845,7 @@ function createPickleServer(ctxOrLegacyToken, legacyPickleKey = "") {
         return {
           messages,
           since: sinceIso,
-          _audit: { window_used: tw.original, pro_note: tw.clamped ? PRO_COMING_SOON_NOTE : null },
+          _audit: { window_used: tw.original, note: null },
         };
       },
     },
@@ -1876,9 +1875,8 @@ function createPickleServer(ctxOrLegacyToken, legacyPickleKey = "") {
         "4. For Slack: after token is set, suggest `slack_list_channels` followed by `slack_get_channel_history` audits.",
         "5. For Microsoft Teams: after token is set, suggest `teams_list_teams` followed by `teams_get_channel_messages` audits.",
         "",
-        "Free-tier audit window cap: 7 days maximum look-back on every audit tool (clickup_filter_tasks, clickup_get_list_tasks, slack_get_channel_history, slack_search_messages, teams_get_channel_messages, teams_get_chat_messages). If the user asks for older audits, pass time_window='7d' and tell them: \"I'm returning the last 7 days — deeper history is coming. Email pickle@adityaarsharma.com if you want it sooner.\"",
+        "There is no audit-window cap. The default look-back is 7 days, but any window works - pass time_window ('1h', '6h', '1d', '3d', '7d', or a longer custom value) and audit as far back as the user needs. Everything runs locally with the user's own token.",
         "",
-        "1-install-per-account fair use: each pickle key is meant for one person's machines. If you notice the user installing on many devices, mention the per-account fair-use policy.",
         "",
         "Pickle is READ-ONLY by default. Never write/post/delete in ClickUp/Slack/Teams unless the user explicitly asks (e.g. 'create this task'). When in doubt, return findings and let the user decide on actions.",
       ].join("\n"),

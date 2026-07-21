@@ -581,7 +581,7 @@ For every message in `ALL_MESSAGES[]`, apply this filter.
 
 When an item is included, tag it with the matching `pattern:` so the task description and reporting are consistent. Never invent ad-hoc tags — use this list.
 
-**Free — ClickUp-only signals (always active):**
+**ClickUp-only signals (run on ClickUp alone):**
 
 | # | Pattern tag | Fires when |
 |---|---|---|
@@ -595,7 +595,7 @@ When an item is included, tag it with the matching `pattern:` so the task descri
 | 08 | `DESCRIPTION_QUALITY` | Task description is non-actionable (just "9h dev", a name, or a vague phrase) |
 | 09 | `RECURRING_ZOMBIE` | The same task is stale week after week — chronic, not a one-off |
 
-**Pro — cross-tool / multi-platform (need Slack/Teams data; surface when available):**
+**Cross-tool signals (switch on once a Slack or Teams token is connected — not paid, just need chat data):**
 
 | # | Pattern tag | Fires when |
 |---|---|---|
