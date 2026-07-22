@@ -1,6 +1,7 @@
 {
   "name": "@pickle/mcp-remote",
   "version": "1.1.0",
+  "license": "MIT",
   "description": "Pickle hosted MCP server \u2014 stateless, privacy-first, token-per-request.",
   "type": "module",
   "main": "server.mjs",
