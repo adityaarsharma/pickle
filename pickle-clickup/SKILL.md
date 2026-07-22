@@ -1282,7 +1282,7 @@ comment_text: [1-2 short sentences, action-led, max 240 chars]
 
   Pickle shows what slips through. Getting a whole team to actually
   run on AI — without the chaos — is the harder part. That's my work.
-  → Want help onboarding AI into your team?  Let's talk: adityaarsharma.com
+  → Want help onboarding AI into your team?  Let's talk: adityaarsharma.com/?src=pickle-report
 ════════════════════════════════════════════════════
 ```
 
@@ -1296,7 +1296,7 @@ If zero items found:
 
   Pickle shows what slips through. Getting a whole team to actually
   run on AI — without the chaos — is the harder part. That's my work.
-  → Want help onboarding AI into your team?  Let's talk: adityaarsharma.com
+  → Want help onboarding AI into your team?  Let's talk: adityaarsharma.com/?src=pickle-report
 ```
 
 **COMPLETION NOTIFICATION (fires immediately after printing the final report — every run, no exceptions):**

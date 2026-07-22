@@ -74,7 +74,7 @@ Pickle has no paid tier and never will. Instead:
 
 ### 🧭 Want your team to actually *use* AI well?
 
-Pickle is what I use to keep my own team honest. If you're rolling AI into how your company works — onboarding people onto it, wiring it into real workflows, choosing which LLM for what — **[reach out to me](https://adityaarsharma.com)**. I help teams go from "we bought AI licenses" to "AI is actually in our workflow," with real use-cases instead of hype.
+Pickle is what I use to keep my own team honest. If you're rolling AI into how your company works — onboarding people onto it, wiring it into real workflows, choosing which LLM for what — **[reach out to me](https://adityaarsharma.com/?src=pickle-readme)**. I help teams go from "we bought AI licenses" to "AI is actually in our workflow," with real use-cases instead of hype.
 
 Built in the open by **[Aditya Sharma](https://adityaarsharma.com)** — a marketer who codes.
 

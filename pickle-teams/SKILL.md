@@ -862,7 +862,7 @@ STATEEOF
 
   Pickle shows what slips through. Getting a whole team to actually
   run on AI — without the chaos — is the harder part. That's my work.
-  → Want help onboarding AI into your team?  Let's talk: adityaarsharma.com
+  → Want help onboarding AI into your team?  Let's talk: adityaarsharma.com/?src=pickle-report
 ```
 
 ---
