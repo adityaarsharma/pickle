@@ -87,7 +87,7 @@ Claude Code · Claude Desktop · Cursor · Codex · Cline · Continue · Zed · 
 
 Pickle has no paid tier and never will. Instead:
 
-- ⭐ **Star the repo** if it saves you a dropped ball.
+- ⭐ **Star the repo** if it caught even one thing worth fixing. A free tool has no ad budget, so a star is genuinely how the next person finds it.
 - 📮 **[Get update notes + workspace-AI tips](https://adityaarsharma.com)**: occasional, practical notes on using AI in real team workflows (the same patterns Pickle runs). Reply anytime with a suggestion or a pattern you want added. I read every one.
 
 ### 🧭 Want your team to actually *use* AI well?
@@ -110,11 +110,17 @@ No middleman. Pickle runs on your machine and talks only to *your* tools (ClickU
 **Which AI clients does it work with?**
 Any MCP-compatible host: Claude Code, Claude Desktop, Cursor, Codex, Cline, Continue, Zed, and more. The reasoning runs in *your* model.
 
+**What should I ask Pickle first?**
+After installing, restart your AI client and paste: *"Pickle, run my morning audit: scan my ClickUp from the last 7 days and show me the 3 worst things I missed, worst first."* You get a ranked, punchy result instead of a data dump, so you feel the value on the first run.
+
 **How is this different from ClickUp Brain or Slack AI?**
 Those are cloud add-ons that each see only their own tool and send your data to their servers. Pickle runs locally, reads *across* ClickUp + Slack + Teams, and keeps your token on your machine. Different axis: privacy + cross-tool, not "more features."
 
 **Is it safe to give it my token?**
 The token stays in your local config file (`chmod 600`), and the code is open. Read it before you connect. Nothing is transmitted anywhere except the platform's own API.
+
+**Will Pickle change or delete anything in my tools?**
+By default it only reads and reports, it does not touch your data. It can create a reminder or drop a comment if you explicitly ask it to (for example "remind me about XYZ-184"), but the audit itself is read-only. You stay in control.
 
 **Do I need Slack and Teams too, or is ClickUp enough?**
 ClickUp alone is a great start. Slack/Teams unlock the cross-tool patterns (decisions-in-DMs, ghost mode) because those need chat data.
