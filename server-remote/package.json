@@ -1,18 +1,46 @@
 {
-  "name": "@pickle/mcp-remote",
+  "name": "pickle-mcp",
   "version": "1.1.0",
   "license": "MIT",
-  "description": "Pickle hosted MCP server \u2014 stateless, privacy-first, token-per-request.",
+  "description": "Free, local, open-source MCP server that audits your ClickUp, Slack & Microsoft Teams for work that slipped through — stale tasks, expired promises, decisions lost in a DM. Runs on your own machine with your own token; no account, no telemetry.",
   "type": "module",
   "main": "server.mjs",
+  "bin": {
+    "pickle-mcp": "server.mjs"
+  },
+  "files": [
+    "server.mjs"
+  ],
+  "mcpName": "io.github.adityaarsharma/pickle",
   "scripts": {
     "start": "node server.mjs",
-    "start:dev": "PORT=3040 node --watch server.mjs"
+    "start:http": "node server.mjs --http"
   },
   "engines": {
     "node": ">=20.0.0"
   },
-  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/adityaarsharma/pickle.git",
+    "directory": "server-remote"
+  },
+  "homepage": "https://pickle.adityaarsharma.com",
+  "bugs": {
+    "url": "https://github.com/adityaarsharma/pickle/issues"
+  },
+  "author": "Aditya Sharma (https://adityaarsharma.com)",
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "clickup",
+    "slack",
+    "microsoft-teams",
+    "audit",
+    "productivity",
+    "local-first",
+    "privacy"
+  ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.9.0",
     "express": "^4.21.0",

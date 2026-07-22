@@ -21,6 +21,7 @@
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -2035,24 +2036,43 @@ app.delete("/mcp", (req, res) => {
 // Boot
 // ---------------------------------------------------------------------------
 
-const server = app.listen(PORT, "127.0.0.1", () => {
-  process.stdout.write(
-    `[pickle-mcp-remote] v${VERSION} ready\n` +
-    `[pickle-mcp-remote] Listening on 127.0.0.1:${PORT}\n` +
-    `[pickle-mcp-remote] MCP endpoint:  http://localhost:${PORT}/mcp\n` +
-    `[pickle-mcp-remote] Health:        http://localhost:${PORT}/health\n`
-  );
-});
-
-server.on("error", (err) => {
-  process.stderr.write(`[pickle-mcp-remote] Server error: ${err.message}\n`);
-  if (err.code === "EADDRINUSE") {
-    process.stderr.write(`[pickle-mcp-remote] Port ${PORT} is in use. Set PORT env var to override.\n`);
-    process.exit(1);
-  }
-});
-
-process.on("SIGTERM", () => {
-  process.stdout.write("[pickle-mcp-remote] Shutting down...\n");
-  server.close(() => process.exit(0));
-});
+// Two transports, one set of tools:
+//   default  → stdio  (how a local MCP client / npx launches Pickle)
+//   --http   → StreamableHTTP on 127.0.0.1:PORT (self-host the remote)
+// stdout belongs to the stdio protocol, so nothing but MCP frames may touch it —
+// all logging here goes to stderr.
+if (process.argv.includes("--http")) {
+  const httpServer = app.listen(PORT, "127.0.0.1", () => {
+    process.stderr.write(
+      `[pickle-mcp] v${VERSION} ready (http)\n` +
+      `[pickle-mcp] Listening on 127.0.0.1:${PORT}\n` +
+      `[pickle-mcp] MCP endpoint:  http://localhost:${PORT}/mcp\n` +
+      `[pickle-mcp] Health:        http://localhost:${PORT}/health\n`
+    );
+  });
+  httpServer.on("error", (err) => {
+    process.stderr.write(`[pickle-mcp] Server error: ${err.message}\n`);
+    if (err.code === "EADDRINUSE") {
+      process.stderr.write(`[pickle-mcp] Port ${PORT} is in use. Set PORT env var to override.\n`);
+      process.exit(1);
+    }
+  });
+  process.on("SIGTERM", () => {
+    process.stderr.write("[pickle-mcp] Shutting down...\n");
+    httpServer.close(() => process.exit(0));
+  });
+} else {
+  // stdio: build the audit context from the MCP env block (the user's own
+  // platform tokens, header-less), then serve one MCP server over stdin/stdout.
+  const ctx = {
+    pickleKey: "local",
+    clickupToken: process.env.CLICKUP_API_KEY || "",
+    slackToken:   process.env.SLACK_TOKEN     || "",
+    teamsToken:   process.env.TEAMS_TOKEN     || "",
+  };
+  const { server } = createPickleServer(ctx);
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+  process.stderr.write(`[pickle-mcp] v${VERSION} ready (stdio)\n`);
+  process.on("SIGTERM", () => { server.close().finally(() => process.exit(0)); });
+}

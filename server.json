@@ -1,0 +1,42 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.adityaarsharma/pickle",
+  "description": "Free, local, open-source MCP server that audits your ClickUp, Slack & Microsoft Teams for work that slipped through — stale tasks, expired promises, decisions lost in a DM. Runs on your own machine with your own token; no account, no telemetry.",
+  "title": "Pickle",
+  "version": "1.1.0",
+  "repository": {
+    "url": "https://github.com/adityaarsharma/pickle",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "pickle-mcp",
+      "version": "1.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "CLICKUP_API_KEY",
+          "description": "Your own ClickUp personal API token (starts with pk_). Optional — set it to enable the 9 ClickUp audit patterns.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "SLACK_TOKEN",
+          "description": "Your own Slack user OAuth token (starts with xoxp-). Optional — set it to enable the cross-tool Slack patterns.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "TEAMS_TOKEN",
+          "description": "Your own Microsoft Graph access token. Optional — set it to enable the Microsoft Teams patterns.",
+          "isRequired": false,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}
