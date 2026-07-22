@@ -31,9 +31,15 @@ Honest version of the privacy claim: Pickle *does* read your ClickUp/Slack/Teams
 
 ---
 
-## <a id="install"></a>Install in 2 minutes
+## <a id="install"></a>Install — one command
 
-**Fastest — via [npm](https://www.npmjs.com/package/pickle-mcp).** Add Pickle to your MCP client config with your own token:
+Guided: it asks which tools you use, points you to where each token lives, and writes your MCP config for you.
+
+```bash
+curl -fsSL https://pickle.adityaarsharma.com/install.sh | bash
+```
+
+**Or add it to your MCP client yourself** (via [npm](https://www.npmjs.com/package/pickle-mcp)):
 
 ```json
 {
@@ -47,15 +53,7 @@ Honest version of the privacy claim: Pickle *does* read your ClickUp/Slack/Teams
 }
 ```
 
-Add `SLACK_TOKEN` (`xoxp-…`) and/or `TEAMS_TOKEN` to the same `env` block to switch on the cross-tool patterns. Restart your client and you're done — `npx` runs it locally on your machine, no global install.
-
-**Or guided — clone + installer:**
-
-```bash
-git clone https://github.com/adityaarsharma/pickle.git
-cd pickle
-./install.sh
-```
+Add `SLACK_TOKEN` (`xoxp-…`) and/or `TEAMS_TOKEN` to the same `env` block to switch on the cross-tool patterns. Restart your client — `npx` runs it locally on your machine, no global install, no clone.
 
 The installer asks which tools you use (ClickUp / Slack / Teams), takes the token *you already have* for each, and writes the MCP config for your client automatically. No hand-editing, no key from us.
 
