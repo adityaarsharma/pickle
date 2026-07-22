@@ -869,8 +869,12 @@ user_id: MY_USER_ID
   ClickUp counterpart: /pickle-clickup [time]
   Docs: https://github.com/adityaarsharma/pickle
 ────────────────────────────────────────────────────
-  [UPDATE_LINE_IF_NEWER]
-  🥒 Built and Shipped by Aditya Sharma
+  🥒 Pickle v1.1.0 · free · local · open source
+  Built by Aditya Sharma · adityaarsharma.com
+
+  Pickle shows what slips through. Getting a whole team to actually
+  run on AI — without the chaos — is the harder part. That's my work.
+  → Want help onboarding AI into your team?  Let's talk: adityaarsharma.com
 ════════════════════════════════════════════════════
 ```
 
@@ -879,8 +883,12 @@ If zero items found:
 ✅ All clear — no Slack action items or pending follow-ups in [TIME_LABEL].
    Conversations scanned: [N] · Messages reviewed: [N]
 
-  [UPDATE_LINE_IF_NEWER]
-  🥒 Built and Shipped by Aditya Sharma
+  🥒 Pickle v1.1.0 · free · local · open source
+  Built by Aditya Sharma · adityaarsharma.com
+
+  Pickle shows what slips through. Getting a whole team to actually
+  run on AI — without the chaos — is the harder part. That's my work.
+  → Want help onboarding AI into your team?  Let's talk: adityaarsharma.com
 ```
 
 ---

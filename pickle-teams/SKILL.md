@@ -855,6 +855,14 @@ STATEEOF
 🔗 Open To Do: https://to-do.microsoft.com/tasks/inbox
 
 ⏱ Run time: ~[X]s
+
+────────────────────────────────────────
+  🥒 Pickle v1.1.0 · free · local · open source
+  Built by Aditya Sharma · adityaarsharma.com
+
+  Pickle shows what slips through. Getting a whole team to actually
+  run on AI — without the chaos — is the harder part. That's my work.
+  → Want help onboarding AI into your team?  Let's talk: adityaarsharma.com
 ```
 
 ---

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @pickle/mcp  v1.0.0
+ * @pickle/mcp  v1.1.0
  *
  * Hosted MCP server for Pickle — stateless, privacy-first.
  * Tokens arrive per-request in headers. Nothing is stored. Nothing is logged.
@@ -10,7 +10,7 @@
  * Endpoints:
  *   POST /mcp       — MCP StreamableHTTP (primary)
  *   GET  /mcp       — SSE fallback (legacy clients)
- *   GET  /health    — { status: "ok", version: "1.0.0" }
+ *   GET  /health    — { status: "ok", version: "1.1.0" }
  *   GET  /          — Landing page (static from ./public/)
  *
  * Request headers expected:
@@ -45,7 +45,7 @@ const REQUEST_TIMEOUT_MS = 30_000;
 const MAX_RETRIES  = 5;
 const USER_AGENT   = "pickle-mcp-remote/3.0 (+https://pickle.adityaarsharma.com)";
 const CACHE_TTL_MS = 3_600_000; // 1 hour — workspace/team data per user token
-const VERSION      = "1.0.0";
+const VERSION      = "1.1.0";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, "public");

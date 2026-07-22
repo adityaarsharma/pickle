@@ -1277,8 +1277,12 @@ comment_text: [1-2 short sentences, action-led, max 240 chars]
   Slack counterpart: /pickle-slack [time]
   Docs: https://github.com/adityaarsharma/pickle
 ────────────────────────────────────────────────────
-  [UPDATE_LINE_IF_NEWER]
-  🥒 Built and Shipped by Aditya Sharma
+  🥒 Pickle v1.1.0 · free · local · open source
+  Built by Aditya Sharma · adityaarsharma.com
+
+  Pickle shows what slips through. Getting a whole team to actually
+  run on AI — without the chaos — is the harder part. That's my work.
+  → Want help onboarding AI into your team?  Let's talk: adityaarsharma.com
 ════════════════════════════════════════════════════
 ```
 
@@ -1287,8 +1291,12 @@ If zero items found:
 ✅ All clear — no ClickUp action items or pending follow-ups in [TIME_LABEL].
    Channels scanned: [N] · Messages reviewed: [N]
 
-  [UPDATE_LINE_IF_NEWER]
-  🥒 Built and Shipped by Aditya Sharma
+  🥒 Pickle v1.1.0 · free · local · open source
+  Built by Aditya Sharma · adityaarsharma.com
+
+  Pickle shows what slips through. Getting a whole team to actually
+  run on AI — without the chaos — is the harder part. That's my work.
+  → Want help onboarding AI into your team?  Let's talk: adityaarsharma.com
 ```
 
 **COMPLETION NOTIFICATION (fires immediately after printing the final report — every run, no exceptions):**
