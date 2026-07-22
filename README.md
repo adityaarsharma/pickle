@@ -33,6 +33,24 @@ Honest version of the privacy claim: Pickle *does* read your ClickUp/Slack/Teams
 
 ## <a id="install"></a>Install in 2 minutes
 
+**Fastest — via [npm](https://www.npmjs.com/package/pickle-mcp).** Add Pickle to your MCP client config with your own token:
+
+```json
+{
+  "mcpServers": {
+    "pickle": {
+      "command": "npx",
+      "args": ["-y", "pickle-mcp"],
+      "env": { "CLICKUP_API_KEY": "pk_your_own_token" }
+    }
+  }
+}
+```
+
+Add `SLACK_TOKEN` (`xoxp-…`) and/or `TEAMS_TOKEN` to the same `env` block to switch on the cross-tool patterns. Restart your client and you're done — `npx` runs it locally on your machine, no global install.
+
+**Or guided — clone + installer:**
+
 ```bash
 git clone https://github.com/adityaarsharma/pickle.git
 cd pickle
