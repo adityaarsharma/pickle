@@ -63,7 +63,7 @@ The installer asks which tools you use (ClickUp / Slack / Teams), takes the toke
 
 Then just ask your AI:
 
-> *"Pickle, audit my ClickUp from the last 7 days. What did I miss?"*
+> *"Pickle, run my morning audit: scan my ClickUp from the last 7 days and show me the 3 worst things I missed, worst first."*
 
 ---
 
