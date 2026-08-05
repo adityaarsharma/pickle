@@ -31,6 +31,22 @@ curl -s -X POST -H "Authorization: Bearer $ACCESS_TOKEN" \
 ```
 where `MSG`, `TASK_TITLE`, `TASK_BODY` are exported as env vars first — never inlined. Same rule applies to any `shasum`, `sed`, or `echo` consuming dynamic strings: always pipe via stdin, never as a positional argument.
 
+---
+
+## DEFAULT-RUN CONTRACT (deterministic checklist — run in order, every time)
+
+**Quality must not depend on who runs Pickle.** Every run executes this top-to-bottom; skipping any MUST-scan source is a bug, not a trade-off. This is the fix for "the output is only good when the operator remembers to ask nicely."
+
+1. **Preconditions** — valid `TEAMS_TOKEN` (Graph) present; if auth fails, print the setup guide and **STOP** (never half-scan). Parse `TIME_RANGE` + `FOLLOWUP_MODE`. Load prefs (generic scoring if absent — never block).
+2. **Both modes, always** — **Mode A (inbox)** AND **Mode B (follow-up)** run every time. Neither is optional.
+3. **Cover every source, never sample** — **every 1:1 chat (always scan)**, every group + meeting chat with in-window activity, every joined-team channel (mentions), every thread reply, Planner tasks assigned to me (A) and delegated by me (B). Follow `@odata.nextLink` — never assume the first page is complete.
+4. **Detect → gate → score (in order)** — run the **RESOLUTION GATE** (still open?) then the **ACTIONABILITY GATE** (concrete verb?) BEFORE scoring. Apply multilingual + typo + indirect-ask rules throughout. Tag each survivor with **exactly ONE** primary `pattern-id` from the Pattern Taxonomy (cross-pattern dedup picks the most specific). Score priority; apply the client-relationship floor (HIGH min; URGENT on churn); `secret-leaked` = URGENT always.
+5. **Dedup → write** — strict `source_id` (`SOURCE_URL`) dedup (new / update / skip / self-heal). Every To Do task passes the **title validator** (naming grammar: verb-led, ends `— {Counterparty}`, ≤ 80 chars, no banned shapes) AND the **body validator** (`Pattern` + `Mode` present, valid `SOURCE_URL`). A task that fails shape is rebuilt or SKIPPED — never shipped malformed.
+6. **Notify → report** — completion notification via **Teams'/To Do's own** surface only. Print the summary grouped by priority with per-source scan counts + the version/consulting footer.
+7. **Ecosystem isolation holds** for destination AND notification — Teams data → Microsoft To Do + Teams reply only. Never a ClickUp task, never a Slack entry (see the ECOSYSTEM RULE at the top).
+
+---
+
 You operate in two modes simultaneously:
 
 **Mode A — Inbox:** What needs MY attention (mentions, unanswered DMs, approvals, blockers)
@@ -448,7 +464,7 @@ Print progress: `  ✓ Scanned [N]/[TOTAL] areas...` (every 20 areas)
 
 ## STEP 4.5 — FILTER OUT NOISE (run BEFORE classification)
 
-Before passing any message to Step 5's `ACTION_TYPE` classifier, drop the obvious noise. Classifying a status update as `REPLY_NEEDED` is how you end up with a To Do task titled "Reply to Yash — Today we'll be making the nexter mcp page live".
+Before passing any message to Step 5's pattern classifier, drop the obvious noise. Tagging a status update as a reply-owed item (`stale-ask`) is how you end up with a To Do task titled "Reply to Alex — Today we'll be making the docs page live".
 
 ### ❌ SKIP unconditionally:
 
@@ -469,12 +485,29 @@ For each message that survived the SKIP list, answer this one question **explici
 
 | Answer | Action |
 |---|---|
-| A concrete verb (reply / decide / approve / share / fix / review / help / confirm / answer / unblock) + a clear object | ✅ INCLUDE — that verb maps to an ACTION_TYPE in Step 5 |
+| A concrete verb (reply / decide / approve / share / fix / review / help / confirm / answer / unblock) + a clear object | ✅ INCLUDE — that verb maps to a `pattern-id` in Step 5 |
 | "Read it" / "Be aware of it" | ❌ SKIP — reading isn't action |
 | "Wait for them to deliver" | ❌ Route to MODE B (Follow-up Tracker), not Mode A inbox |
 | "Can't tell — message is cut off" | ❌ SKIP — vague tasks pollute the board worse than missed ones |
 
-Multilingual: Hindi/Gujarati intent maps to an English verb. "approve karein" → `approve`. "share kar do" → `share`. "bata do" → `answer/tell`.
+Multilingual: Hindi/Gujarati intent maps to an English verb. "approve karein" → `approve`. "share kar do" → `share`. "bata do" → `answer/tell`. Detect on MEANING, not keywords — Teams users mix Hindi/Hinglish/Gujarati/English in one sentence; the title is always English, the body VERBATIM keeps the original.
+
+### ⌨️ Typo tolerance · 🎭 sarcasm / indirect asks
+
+- **Typos never downgrade detection.** Match on intent + fuzzy token, edit-distance ≤ 2 on content words, weekday/month transpositions ("thrusday"→Thursday). "aprove", "reveiw", "refnd", "acess" all still fire. Parse the typo-tolerant weekday map before computing deadlines.
+- **Indirect asks are still asks.** "It'd be great if someone looked at the deploy 👀", "wonder who owns this now" → treat as the underlying action when I'm the plausible owner.
+- **Sarcasm ≠ resolution.** "oh great, another late report 🙄" is an `escalation-complaint` signal, not an FYI, not "resolved."
+- **Politeness masks urgency.** "no rush, but…" from a client on an overdue deliverable still gets the client-signal floor. When genuinely ambiguous → SKIP.
+
+### 🔁 RESOLUTION GATE — run BEFORE keeping any item
+
+An item is actionable only if **still open**:
+1. **Did I already reply after the ask?** My latest message post-dates it → answered → SKIP (route to Mode B if my reply made a new promise).
+2. **Is there already a non-`completed` To Do task for this `SOURCE_URL`?** → SKIP (Step 7 handles this fully; pre-filter here too).
+3. **Closed in-thread?** a closure signal AFTER the ask ("done", "sorted", "ho gaya", "handled", "ignore") → SKIP.
+4. **Deadline passed AND thing shipped?** a later "shipped/live/done" → SKIP (don't flag as `expired-promise`).
+
+Only if all four fail does the item proceed. When unsure whether I replied, fetch the thread replies and check — never flag blind. For Mode B, "replied" ≠ "done": an ack ("on it") is `acknowledged-not-delivered`, not resolved — check ALL surfaces (chat replies, Planner status, files) before concluding no-reply.
 
 ---
 
@@ -484,20 +517,66 @@ Merge:
 - `ALL_INBOX = CHANNEL_INBOX[] + CHAT_INBOX[] + PLANNER_ASSIGNED[]`  (only items that passed Step 4.5)
 - `ALL_FOLLOWUP = CHANNEL_FOLLOWUP[] + CHAT_FOLLOWUP[] + PLANNER_DELEGATED[]`
 
+### 🧬 PATTERN TAXONOMY (tag every item with exactly ONE) — Teams-applicable set
+
+Tag each item with **one** stable `kebab-case` pattern-id (IDs never change — state, dedup, reporting key on them). One pattern = one meaning; on multiple matches, cross-pattern dedup (Step 7) keeps the **most specific**. This taxonomy is the source of truth and the same vocabulary `pickle-clickup` and `pickle-slack` use — all three skills tag with these pattern-ids and the same **Mode A/B** split, so a user with two ecosystems sees one language. **Mode:** `A` owed *to* me · `B` *I* set it in motion. Detect on MEANING + fuzzy token; every example gives EN + Hinglish + a **typo'd** variant.
+
+#### F1 · Reply owed (Mode A)
+- **`stale-ask`** (A) — someone asked me a specific thing; neither done nor replied, ≥ 1 day. EN "send the Q3 numbers?" · Hinglish "Q3 ke numbers bhej dena" · Typo "snd me teh Q3 numbes". *Guardrail:* SKIP if I replied after it or it closed in-thread.
+- **`ghosted-message`** (A) — a 1:1/mention I never acknowledged at all, ≥ 24h — silence itself is the risk. *Guardrail:* upgrades to `stale-ask` if a clear ask emerges — never double-count.
+- **`unanswered-question`** (A) — a direct question at me still open (`?` / `…hai?` / `…che?`). *Guardrail:* rhetorical/aimed-at-someone-else SKIP.
+- **`approval-pending`** (A) — someone needs my yes/no/sign-off ("approve?", "LGTM?", "confirm karein", "tame confirm karo"). Approvals-app Adaptive Cards always fire this.
+- **`decision-pending`** (A) — an open call with a tradeoff waits on me ("your call", "kya karna chahiye", "decide kar lo"). Distinguish from a quick `unanswered-question`.
+- **`blocked-waiting-on-me`** (A · **priority floor HIGH**) — someone's work is stalled specifically on me ("blocked on you", "ruk gaya, aap ka wait"). Verify they wait on *me*.
+- **`bottleneck`** (A · **priority floor HIGH** · meta) — ≥ 3 open A-items all waiting on my review/approval → emit ONE summary task in addition to the individual ones.
+- **`meeting-action-item`** (A) — I was assigned an action in a meeting chat ("action item:", "AI:", "@{MY_NAME} will…", "you'll handle") that isn't tracked. Also match `MY_DISPLAY_NAME` in plain text, not just @mentions. SKIP if already a Planner/To Do item or assigned to someone else.
+- **`fyi-needs-action`** (A · **the trap**) — an "FYI / heads up" message carrying a latent action/risk I own. EN "Heads up — client said they'll churn if the report's late again." · Hinglish "FYI, client bol raha tha report late hui toh churn kar denge" · Typo "heds up — clint said theyll churn". *Guardrail:* **most FYIs are noise → SKIP (default).** Only fire on a concrete verb I must do.
+
+#### F2 · Commitment owed to me (Mode B)
+- **`delegation-stalled`** (B) — I asked someone to do a specific thing; no delivery evidence. EN "finish the onboarding doc this week?" · Hinglish "onboarding doc is week complete kar dena" · Typo "finsh teh onbording doc". *Guardrail:* "replied" ≠ "done".
+- **`expired-promise`** (B) — promised by a time now passed, nothing delivered. EN "banners by Thursday" · Hinglish "Thursday tak bhej dunga" · Typo "by thrusday". *Guardrail:* a later "shipped/done" after the deadline → resolved; parse weekday typos.
+- **`commitment-with-date`** (B) — a dated commitment still in the future (a Planner task due within 24h feeds this); tracked to surface near the date. Converts to `expired-promise` once it slips — never both.
+- **`recurring-commitment-stopped`** (B) — a recurring update I asked for was flowing and stopped. Weekends don't count for a workday cadence.
+- **`acknowledged-not-delivered`** (B) — "on it / will do / ho jayega" but nothing arrived. Allow ≥ 1 day before nagging.
+
+#### F3 · My open loop (Mode A, self-directed)
+- **`my-open-commitment`** (A · owner = me) — I said "I'll do X / dekh leta hoon" and never closed it. The ONE Mode-A pattern keyed on my own messages.
+
+#### F4 · Risk / security (Mode A)
+- **`secret-leaked`** (A · **URGENT floor & ceiling**) — an API key/token/password pasted in plaintext. **Redact** in title/body (first/last 4 only); never echo the full secret. Doc placeholders must NOT fire.
+- **`access-security-request`** (A) — someone asks me to grant access/a seat, OR flags access to revoke. Grant + revoke both (revoke on a departing person → HIGH+).
+- **`orphaned-work`** (A) — a person is leaving/left and work is about to become unowned ("last day", "handover", "offboarding"). Pair with their open Planner items before flagging.
+
+#### F5 · Money / customer (Mode A)
+- **`money-refund-pending`** (A · **priority floor HIGH**) — a payment/refund/invoice/payout owed and unresolved. Overdue ≥ 7 days or customer chasing → URGENT.
+- **`escalation-complaint`** (A · **priority floor HIGH; URGENT on churn**) — a customer/partner thread escalated to me, or a frustrated client signalling churn ("escalating to you", "reconsidering", "report nahi aaya"). Client signal forces HIGH minimum.
+
+#### F6 · Work-state hygiene — **ClickUp-native; NOT fired by pickle-teams**
+The F6 family (`stale-in-progress`, `zombie-task`, `effort-output-mismatch`, `weak-task-description`, `blocker-aging`, `standup-theater`) fires on ClickUp **task-board state**, which Teams does not expose the same way. Leave these to `pickle-clickup`.
+
+#### F7 · Cross-tool sync gap ([needs ClickUp/Slack token connected])
+Compare "said in Teams" vs "on the card in another tool." **Isolation:** any task `pickle-teams` creates stays in Microsoft To Do; the actual card-fix is surfaced as a To Do task reminding *you* to record/update it — Teams never writes to another tool's board.
+- **`ghost-done`** (B) — marked "done" in a Teams chat but the card was never updated.
+- **`dm-only-completion`** (B) — completion evidence lives only in Teams chat; the card still shows In Progress.
+- **`manager-bottleneck`** (A) — multiple items across tools await MY review (feeds `bottleneck`, threshold ≥ 3).
+- **`decision-in-dm`** (A) — a decision made in a Teams chat but never recorded on the card/doc. If it *was* recorded, SKIP.
+
 ### Mode A — Inbox Classification
 
-For each inbox item, assign `ACTION_TYPE`:
+For each inbox item, tag exactly ONE `pattern-id` (all Mode A) from the taxonomy above, using these Teams detection signals:
 
-| `ACTION_TYPE` | Detection Signals |
-|---------------|-------------------|
-| `APPROVAL` | "can you approve", "approve kar do", "LGTM?", "sign off", "confirm this", "give green light", "manjoor karo" |
-| `DECISION` | Direct question ending in `?`, "what do you think", "kya lagta hai", "your call", "decide kar lo", "aap batao" |
-| `REPLY_NEEDED` | 1:1 DM from other person with no reply from me in time window |
-| `MENTION_UNRESPONDED` | @mention in channel/group with no reply from me |
-| `BLOCKER` | "blocked", "stuck", "ruk gaya", "aage nahi badh pa raha", "waiting on you", "need you to unblock" |
-| `REVIEW_REQUEST` | "please review", "review kar lo", "check this", "feedback chahiye", "PR ready", "dekh lo" |
-| `TASK_ASSIGNED` | Planner task assigned to me (from 3c) |
-| `MEETING_ACTION` | Meeting chat message matching "action item:", "AI:", "@{MY_NAME} will", "you'll handle" |
+| `pattern-id` | Detection Signals |
+|--------------|-------------------|
+| `approval-pending` | "can you approve", "approve kar do", "LGTM?", "sign off", "confirm this", "give green light", "manjoor karo" |
+| `decision-pending` | Direct question with a tradeoff, "what do you think", "kya lagta hai", "your call", "decide kar lo", "aap batao" |
+| `unanswered-question` | A quick/factual direct question ending in `?` (`…hai?` / `…che?`) at me, still open |
+| `stale-ask` | 1:1 DM or @mention with a concrete ask + no reply from me in window; also "please review", "review kar lo", "check this", "feedback chahiye", "PR ready", "dekh lo" |
+| `ghosted-message` | 1:1/@mention I never acknowledged at all (no verb yet, silence is the risk), ≥ 24h |
+| `blocked-waiting-on-me` | "blocked", "stuck", "ruk gaya", "aage nahi badh pa raha", "waiting on you", "need you to unblock" |
+| `meeting-action-item` | Meeting chat message matching "action item:", "AI:", "@{MY_NAME} will", "you'll handle" |
+| *(Planner)* | Planner task assigned to me (from 3c) → tag by its content using the patterns above |
+
+(Risk / money items — `secret-leaked`, `access-security-request`, `money-refund-pending`, `escalation-complaint` — carry their own floors from the taxonomy and win cross-pattern dedup.)
 
 Extract for each item:
 - `sender_name` — display name of who sent it
@@ -509,15 +588,15 @@ Extract for each item:
 
 ### Mode B — Follow-up Classification
 
-For each follow-up item, assign `FOLLOWUP_TYPE`:
+For each follow-up item, tag exactly ONE `pattern-id` (all Mode B) from the taxonomy above, using these Teams detection signals:
 
-| `FOLLOWUP_TYPE` | Detection Signals |
-|-----------------|-------------------|
-| `DELEGATED_TASK` | I asked: "can you do", "please handle", "kar dena", "manage kar lo", "you take this" |
-| `AWAITING_REPLY` | I asked a question, no response received |
-| `PENDING_DELIVERY` | I asked for a file/doc/output: "share the", "bhej dena", "send me", "jab ready ho tab" |
-| `PLANNER_DELEGATED` | Planner task I created and assigned to others (from 3d) |
-| `DEADLINE_AT_RISK` | Planner task with `dueDateTime` within 24h and assigned to others |
+| `pattern-id` | Detection Signals |
+|--------------|-------------------|
+| `delegation-stalled` | I asked: "can you do", "please handle", "kar dena", "manage kar lo", "you take this", or asked a question with no response; also a Planner task I created and assigned to others (from 3d) with no delivery |
+| `acknowledged-not-delivered` | I asked for a file/doc/output ("share the", "bhej dena", "send me", "jab ready ho tab") and got only an ack ("on it", "ho jayega"), nothing delivered |
+| `commitment-with-date` | A dated commitment still ahead — e.g. a Planner task with `dueDateTime` within 24h assigned to others; converts to `expired-promise` once it slips |
+| `expired-promise` | They promised by a time now passed with nothing delivered |
+| `recurring-commitment-stopped` | A recurring update I asked for was flowing and stopped |
 
 Extract for each item:
 - `assignee_name` — who I delegated to
@@ -536,18 +615,18 @@ Score each item 0–100:
 | Factor | Points |
 |--------|--------|
 | 1:1 DM | +35 |
-| APPROVAL request | +28 |
-| BLOCKER type | +25 |
-| DECISION request | +22 |
-| MEETING_ACTION | +20 |
+| `approval-pending` | +28 |
+| `blocked-waiting-on-me` | +25 |
+| `decision-pending` | +22 |
+| `meeting-action-item` | +20 |
 | @mention in channel | +20 |
-| REVIEW_REQUEST | +18 |
-| TASK_ASSIGNED (Planner) | +15 |
+| `stale-ask` (review/reply owed) | +18 |
+| Planner task assigned to me | +15 |
 | Group chat | +12 |
 | Meeting chat | +12 |
-| DELEGATED_TASK follow-up | +15 |
-| DEADLINE_AT_RISK follow-up | +25 |
-| AWAITING_REPLY follow-up | +12 |
+| `delegation-stalled` follow-up (Mode B) | +15 |
+| `commitment-with-date` near/past due (Mode B) | +25 |
+| `acknowledged-not-delivered` follow-up (Mode B) | +12 |
 
 ### Role keyword boost
 
@@ -598,6 +677,8 @@ For each scored item, generate stable `SOURCE_URL`:
 - Chat message: use `webUrl` from API response
 - Planner task: `planner:{task-id}` (no deep link available from API)
 - If `webUrl` is null/empty: construct from IDs → `teams:{team-id}:{channel-id}:{message-id}`
+
+**Cross-pattern dedup (one source_id → one task):** an item is uniquely keyed by its `SOURCE_URL`. One `SOURCE_URL` yields **exactly ONE** To Do task even if it matches multiple patterns — pick the **most specific** by this order and record it as the primary `pattern-id`: **F4/F5 (risk / money) > F1 decision/approval/blocked > F1 reply/question > F7.** `bottleneck` is the sole exception (an additional summary task by design). The state-keyed logic below guarantees the same message never becomes two tasks across runs.
 
 **Dedupe logic:**
 
@@ -652,60 +733,79 @@ Required fields:
 - `action_summary` — non-empty, min 10 characters
 - `priority` — one of P1/P2/P3
 - `platform_area` — non-empty string
-- `action_type` — valid ACTION_TYPE or FOLLOWUP_TYPE value
+- `pattern_id` — a valid `pattern-id` from the taxonomy (with its Mode A/B)
 
-### Task title format
+### Task title format — the NAMING GRAMMAR (unified across all three tools)
+
+A title is an **instruction to my future self**, not a transcript. One grammar governs every Pickle task:
 
 ```
-[P1] 💬 Reply to {sender_name} — {topic_slug}         (for REPLY_NEEDED / MENTION_UNRESPONDED)
-[P1] ✅ Approve: {topic_slug} — from {sender_name}     (for APPROVAL)
-[P1] 🚧 Unblock {sender_name}: {topic_slug}            (for BLOCKER)
-[P2] 🔍 Review: {topic_slug} — {sender_name}           (for REVIEW_REQUEST)
-[P2] 💭 Decide: {topic_slug}                           (for DECISION)
-[P2] 📋 Planner: {task_title}                          (for TASK_ASSIGNED)
-[P2] 📅 Meeting action: {topic_slug}                   (for MEETING_ACTION)
-[P3] 📤 Follow up with {assignee_name} re: {topic_slug} (for DELEGATED_TASK)
-[P3] ⏰ Deadline risk: {topic_slug} — {assignee_name}  (for DEADLINE_AT_RISK)
+{SEVERITY} {TYPE-EMOJI} {ACTION-VERB} {OBJECT} — {Counterparty}  [Teams]
 ```
 
-`topic_slug` = a **concise noun phrase that names the ACTION OBJECT** — what specifically needs to be acted on. NOT a raw excerpt of the message. NOT a sentence. 2–6 words max.
+- **`{SEVERITY}`** — a word prefix ONLY for the top two tiers: **P1 → `🔴 CRITICAL`** · **P2 → `🟠 HIGH`** · **P3 → *(no severity word)***. (This replaces the old `[P1]`/`[P2]`/`[P3]` prefixes with the unified culture — the To Do `importance` field still carries the machine priority.)
+- **`{TYPE-EMOJI}`** — exactly one, by action type: `📥` Reply (`stale-ask`, `ghosted-message`, `unanswered-question`) · `🧭` Decision (`decision-pending`, `decision-in-dm`) · `✅` Approve (`approval-pending`) · `⛏️` Unblock (`blocked-waiting-on-me`) · `⏳` Follow-up (all F2) · `🔐` Security (`secret-leaked`, `access-security-request`, `orphaned-work`) · `💰` Money (`money-refund-pending`, `escalation-complaint`) · `📅` Meeting action (`meeting-action-item`) · `🔁` Sync gap (`ghost-done`, `dm-only-completion`) · `🚦` Bottleneck (`bottleneck`/`manager-bottleneck`).
+- **`{ACTION-VERB}`** — imperative, from: `Reply · Answer · Decide · Approve · Confirm · Review · Sign · Share · Send · Fix · Ship · Unblock · Help · Schedule · Cancel · Refund · Investigate · Grant · Revoke · Record · Reassign · Rotate · Follow up · Update · Publish · Deploy · Merge · Set up · Add · Remove · Test`. Multilingual asks map to an English verb first; **the title is always English**.
+- **`{OBJECT}`** — a concise noun phrase naming what specifically needs acting on (2–6 words). NOT a raw excerpt, NOT a sentence.
+- **`— {Counterparty}`** — em-dash + the person or channel (Mode B: who owes me). Followed by the `[Teams]` source tag.
 
-| ❌ BAD `topic_slug` (raw excerpt) | ✅ GOOD `topic_slug` (action object) |
+**Type templates** (grammar applied per `pattern-id`):
+```
+🔴 CRITICAL 📥 Reply about {object} — {sender} [Teams]        (stale-ask / ghosted-message · Mode A)
+🔴 CRITICAL ✅ Approve {object} — {sender} [Teams]            (approval-pending · Mode A)
+🔴 CRITICAL ⛏️ Unblock {object} — {sender} [Teams]           (blocked-waiting-on-me · Mode A)
+🟠 HIGH 🧭 Decide {object} — {sender} [Teams]                 (decision-pending · Mode A)
+🟠 HIGH 📥 Review {object} — {sender} [Teams]                 (stale-ask · Mode A)
+🟠 HIGH 📅 Do {object} (meeting action) — {sender} [Teams]    (meeting-action-item · Mode A)
+⏳ Follow up on {object} — {assignee} [Teams]                 (delegation-stalled · Mode B)
+⏳ Follow up on {object} before deadline — {assignee} [Teams] (commitment-with-date · Mode B)
+```
+
+**Hard rules:** ≤ 80 chars total (if over, drop the severity word first, then trim the object — never the verb or counterparty) · MUST start with `{SEVERITY}`/emoji then a verb · MUST end with `— {Counterparty} [Teams]` · **BANNED**: `{Name}: {message excerpt}`, mid-sentence cuts, verbatim greetings/fillers, a colon introducing a quote.
+
+| ❌ BAD (raw excerpt) | ✅ GOOD (grammar) |
 |---|---|
-| `Today we'll be making the nexter mcp page live` | `nexter MCP go-live plan` |
-| `Hello aditya, accounts tickets me bahut LIve chat vale refunds re` | `live-chat refund policy` |
-| `aap MCP ke Video ki baat kar rah ho ??` | `which MCP video` |
-| `[screenshot]` (no caption) | `Zoho leak screenshots` (extract from thread context) |
+| `Today we'll be making the mcp page live` | *(skip — pure FYI, no ask)* |
+| `Hello there, accounts tickets me refunds re` | `🔴 CRITICAL 💰 Decide live-chat refund policy — Alex [Teams]` |
+| `aap MCP ke Video ki baat kar rah ho ??` | `📥 Answer which MCP video I meant — Sam [Teams]` |
+| `[screenshot]` (no caption) | `🔐 Rotate leaked key (sk-proj-…VugA) — #general [Teams]` |
 
-If you cannot produce a concrete action-object noun phrase, the item didn't pass the Step 4.5 ACTIONABILITY GATE and should not have reached Step 8. Re-run Step 4.5 on the candidate; if it still has no verb, SKIP (do not create a noisy task).
-
-Strip the final title to max 120 chars total.
+If you cannot produce a concrete `{OBJECT}` + verb, the item didn't pass the Step 4.5 ACTIONABILITY GATE — re-run the gate; if still no verb, SKIP (don't create a noisy task).
 
 ### Task body format
 
 For **Inbox items (Mode A)**:
 ```
-📍 Area: {platform_area}
-🗓 Received: {relative_time} (e.g. "2 hours ago")
-👤 From: {sender_name}
-📝 What's needed: {action_summary}
+Pattern: {pattern-id}   ·   Mode: A · inbox
+📍 Area: {platform_area}   (Counterparty: {sender_name})
+🗓 When: {relative_time} (e.g. "2 hours ago")
+💬 Verbatim: "{exact quote — original language}"  [if non-English: (≈ "…english…")]
+⏳ What's pending: {action_summary — the open loop}
+🎯 Why (priority: {P1/P2/P3} — {1-line rationale}): {consequence of leaving it}
+📋 Next step: • {most useful move}  • {step 2}
 🔗 Source: {SOURCE_URL}
 
 ---
-pickle-teams · {ISO_TIMESTAMP}
+🥒 Pickle v1.2.0 · pickle-teams · by Aditya Sharma
+Want help onboarding AI into your team? → adityaarsharma.com/?src=pickle-report · {ISO_TIMESTAMP}
 ```
 
 For **Follow-up items (Mode B)**:
 ```
-📍 Area: {platform_area}
-📤 You asked: {original_ask}
-👤 Delegated to: {assignee_name}
-⏳ Asked: {relative_days_waiting} ago, no update since
+Pattern: {pattern-id}   ·   Mode: B · follow-up
+📍 Area: {platform_area}   (Counterparty: {assignee_name} — owes me)
+💬 Verbatim (what I asked): "{original_ask — original language}"
+⏳ What's pending: Asked {relative_days_waiting} ago, no update since
+🎯 Why (priority: {P1/P2/P3} — {1-line rationale}): {why it matters now}
+📋 Next step: • Chase {assignee_name} once  • {escalate/reassign if still silent}
 🔗 Source: {SOURCE_URL}
 
 ---
-pickle-teams · {ISO_TIMESTAMP}
+🥒 Pickle v1.2.0 · pickle-teams · by Aditya Sharma
+Want help onboarding AI into your team? → adityaarsharma.com/?src=pickle-report · {ISO_TIMESTAMP}
 ```
+
+**`Pattern` + `Mode` are required fields** (make the taxonomy visible + let reporting group by pattern). **`Verbatim`** keeps the original language — redact secrets (`sk-proj-…VugA`). **`Why (priority: …)`** forces the tier rationale onto the task. Keep the `🔗 Source:` line exactly (Step 2.5 dedupe regex-matches it).
 
 ### Create task via API
 
@@ -809,7 +909,7 @@ Track sent follow-ups in `STATE.followups_sent[]`.
       "todo_task_title": "Task title...",
       "status": "open",
       "priority": "P1",
-      "action_type": "APPROVAL",
+      "pattern_id": "approval-pending",
       "sender": "Display Name",
       "platform_area": "Team / #channel or 1:1 with Name"
     }
@@ -857,7 +957,7 @@ STATEEOF
 ⏱ Run time: ~[X]s
 
 ────────────────────────────────────────
-  🥒 Pickle v1.1.0 · free · local · open source
+  🥒 Pickle v1.2.0 · free · local · open source
   Built by Aditya Sharma · adityaarsharma.com
 
   Pickle shows what slips through. Getting a whole team to actually

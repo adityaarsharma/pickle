@@ -3,7 +3,7 @@
   "name": "io.github.adityaarsharma/pickle",
   "description": "Free, local MCP server that audits ClickUp, Slack & Teams for work that slipped through.",
   "title": "Pickle",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "repository": {
     "url": "https://github.com/adityaarsharma/pickle",
     "source": "github"
@@ -13,7 +13,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "pickle-mcp",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "transport": {
         "type": "stdio"
       },

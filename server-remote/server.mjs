@@ -1,22 +1,25 @@
 #!/usr/bin/env node
 /**
- * @pickle/mcp  v1.1.0
+ * pickle-mcp  — the Pickle MCP server
  *
- * Hosted MCP server for Pickle — stateless, privacy-first.
- * Tokens arrive per-request in headers. Nothing is stored. Nothing is logged.
+ * LOCAL, open-source (MIT), no account, no telemetry, no hosted backend.
+ * You run this on your own machine. It reads the platform token(s) you already
+ * have from the MCP config `env` block (CLICKUP_API_KEY / SLACK_TOKEN /
+ * TEAMS_TOKEN); an `x-*-token` request header is accepted only on the
+ * self-hosted `--http` path. Tokens are never stored, logged, or echoed.
  *
- * Port: 3055 (override with PORT env var)
+ * Default transport: stdio (how a local MCP client / npx launches Pickle).
+ *   `--http` starts a StreamableHTTP server bound to 127.0.0.1:PORT (self-host).
  *
- * Endpoints:
- *   POST /mcp       — MCP StreamableHTTP (primary)
- *   GET  /mcp       — SSE fallback (legacy clients)
- *   GET  /health    — { status: "ok", version: "1.1.0" }
- *   GET  /          — Landing page (static from ./public/)
+ * Talks ONLY to the user's own platform APIs — there is no Pickle server:
+ *   - https://api.clickup.com     (ClickUp REST v2 + Chat/Docs v3)
+ *   - https://slack.com           (Slack Web API)
+ *   - https://graph.microsoft.com (Microsoft Graph v1.0 — Teams)
  *
- * Request headers expected:
- *   x-clickup-token   — ClickUp personal API token (pk_...)
- *
- * Zero telemetry. Only talks to https://api.clickup.com.
+ * HTTP endpoints (--http mode only):
+ *   POST /mcp     — MCP StreamableHTTP (primary)
+ *   GET  /mcp     — SSE fallback (legacy clients)
+ *   GET  /health  — { status: "ok", version: "..." }
  */
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -29,11 +32,7 @@ import {
   McpError,
 } from "@modelcontextprotocol/sdk/types.js";
 import express from "express";
-import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
-import { fileURLToPath } from "node:url";
-import path from "node:path";
-import fs from "node:fs";
-import https from "node:https";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 
 // ---------------------------------------------------------------------------
@@ -46,17 +45,7 @@ const REQUEST_TIMEOUT_MS = 30_000;
 const MAX_RETRIES  = 5;
 const USER_AGENT   = "pickle-mcp-remote/3.0 (+https://pickle.adityaarsharma.com)";
 const CACHE_TTL_MS = 3_600_000; // 1 hour — workspace/team data per user token
-const VERSION      = "1.1.0";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PUBLIC_DIR = path.join(__dirname, "public");
-const DATA_DIR   = path.join(__dirname, "data");
-const USAGE_FILE   = path.join(DATA_DIR, "usage.json");
-
-// Ensure data dir exists
-try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch {}
-
-// Marketing/admin config — set via env vars on the server
+const VERSION      = "1.2.0";
 
 // ---------------------------------------------------------------------------
 // SSRF protection — whitelist of allowed outbound hosts
@@ -80,35 +69,27 @@ function assertSafeHost(urlStr) {
 }
 
 // ---------------------------------------------------------------------------
-// License gate
-// Pro key format:  anything Polar.sh issues (validated server-side later)
-// For now: any non-empty key >= 8 chars is accepted.
+// Audit time window
+// Default look-back is 7 days. Runs locally, so any explicit window is honored
+// up to MAX_WINDOW_MS, which exists ONLY as an upper clamp on huge inputs.
 // ---------------------------------------------------------------------------
 
-// Local build: usage/install tracking is intentionally a no-op (no telemetry).
-function trackAudit() {}
-function trackInstallFingerprint() {}
-function trackPlatformsSeen() {}
-
-function validateLicenseKey(key) {
-  return typeof key === "string" && key.trim().length >= 8;
-}
-
-// ---------------------------------------------------------------------------
-// Local build: no window cap - any look-back works.
-// ---------------------------------------------------------------------------
-
-const MAX_WINDOW_MS = 3650 * 24 * 60 * 60 * 1000; // effectively unlimited (local)
+const DEFAULT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;   // 7 days — the real default
+const MAX_WINDOW_MS = 3650 * 24 * 60 * 60 * 1000;    // 10 years — upper clamp only
 
 // Parse a window string like "1h", "6h", "1d", "3d", "7d" into milliseconds.
+// Empty/default → exactly 7 days. Unparseable → throw (never silently balloon).
 // Returns { ms, clamped, original } so callers can surface a note when clamped.
 function parseTimeWindow(input) {
   if (input === undefined || input === null || input === "") {
-    return { ms: MAX_WINDOW_MS, clamped: false, original: "7d" };
+    return { ms: DEFAULT_WINDOW_MS, clamped: false, original: "7d" };
   }
   const m = String(input).trim().toLowerCase().match(/^(\d+)\s*([hd])$/);
   if (!m) {
-    return { ms: MAX_WINDOW_MS, clamped: true, original: String(input) };
+    throw new McpError(
+      ErrorCode.InvalidParams,
+      `Invalid time_window "${input}". Use a number followed by 'h' or 'd', e.g. '1h', '6h', '1d', '3d', '7d'.`
+    );
   }
   const n = Number(m[1]);
   const unit = m[2];
@@ -121,7 +102,8 @@ function parseTimeWindow(input) {
 
 // Apply window to ClickUp date filter args: clamps date_updated_gt /
 // date_created_gt to "now - window" if they're absent OR set further back.
-// Returns the adjusted args and a note if clamped.
+// Returns the adjusted args and a note if clamped. window_used always reflects
+// what was actually applied (never a label that differs from the real floor).
 function applyWindowCap(args, kind = "updated") {
   const tw = parseTimeWindow(args.time_window);
   const floor = Date.now() - tw.ms;
@@ -131,8 +113,8 @@ function applyWindowCap(args, kind = "updated") {
   return {
     args: { ...args, [key]: finalFloor },
     clamped: tw.clamped,
-    window_used: tw.original === "7d" && !args.time_window ? "7d (default)" : tw.original,
-    note: null,
+    window_used: !args.time_window ? "7d (default)" : tw.original,
+    note: tw.clamped ? `Requested window exceeded the ${Math.round(MAX_WINDOW_MS / 86400000)}-day maximum and was clamped.` : null,
   };
 }
 
@@ -265,7 +247,43 @@ function isOptional(schema) {
 // Captures the ClickUp token via closure; uses per-user cache for team data.
 // ---------------------------------------------------------------------------
 
-const TOOL_COUNT = 40; // Updated at runtime in startupLog
+// ---------------------------------------------------------------------------
+// Read-only guard
+// The audit itself is read-only; writes only ever happen on an explicit user
+// request. Set PICKLE_READONLY (to any truthy value) to hard-block every
+// mutating tool at the server, so no MCP host can create/update/delete/post/
+// react even if mis-prompted. Unset (the default) keeps normal behavior.
+// ---------------------------------------------------------------------------
+
+const MUTATING_TOOLS = new Set([
+  "clickup_create_space",
+  "clickup_create_list",
+  "clickup_set_task_custom_field",
+  "clickup_send_chat_message",
+  "clickup_update_chat_message",
+  "clickup_delete_chat_message",
+  "clickup_send_chat_reply",
+  "clickup_react_to_chat_message",
+  "clickup_create_task",
+  "clickup_update_task",
+  "clickup_delete_task",
+  "clickup_add_task_watcher",
+  "clickup_remove_task_watcher",
+  "clickup_create_task_comment",
+  "clickup_update_comment",
+  "clickup_delete_comment",
+  "clickup_create_threaded_comment",
+  "clickup_create_list_comment",
+  "clickup_create_doc",
+  "clickup_create_doc_page",
+  "clickup_update_doc_page",
+  "clickup_create_reminder",
+]);
+
+function isReadOnlyMode() {
+  const v = process.env.PICKLE_READONLY;
+  return v !== undefined && v !== "" && v !== "0" && String(v).toLowerCase() !== "false";
+}
 
 function createPickleServer(ctxOrLegacyToken, legacyPickleKey = "") {
   // Backwards-compat: old call sites passed (clickupToken, pickleKey).
@@ -315,9 +333,13 @@ function createPickleServer(ctxOrLegacyToken, legacyPickleKey = "") {
       } catch (err) {
         clearTimeout(th);
         lastErr = err;
-        if (attempt < MAX_RETRIES) { await sleep(backoffMs(attempt)); continue; }
+        // Only auto-retry network errors for idempotent methods — a POST/PUT/
+        // PATCH/DELETE may have reached ClickUp before the connection dropped,
+        // so retrying could duplicate the side effect. Fail fast instead.
+        const isIdempotent = method === "GET" || method === "HEAD";
+        if (isIdempotent && attempt < MAX_RETRIES) { await sleep(backoffMs(attempt)); continue; }
         throw new McpError(ErrorCode.InternalError,
-          `ClickUp request failed after ${MAX_RETRIES + 1} attempts: ${err?.message ?? err}`);
+          `ClickUp request failed: ${err?.message ?? err}`);
       }
       clearTimeout(th);
 
@@ -434,9 +456,11 @@ function createPickleServer(ctxOrLegacyToken, legacyPickleKey = "") {
       } catch (err) {
         clearTimeout(th);
         lastErr = err;
-        if (attempt < MAX_RETRIES) { await sleep(backoffMs(attempt)); continue; }
+        // Only auto-retry network errors for idempotent methods (see clickupFetch).
+        const isIdempotent = method === "GET" || method === "HEAD";
+        if (isIdempotent && attempt < MAX_RETRIES) { await sleep(backoffMs(attempt)); continue; }
         throw new McpError(ErrorCode.InternalError,
-          `Slack request failed after ${MAX_RETRIES + 1} attempts: ${err?.message ?? err}`);
+          `Slack request failed: ${err?.message ?? err}`);
       }
       clearTimeout(th);
 
@@ -501,9 +525,11 @@ function createPickleServer(ctxOrLegacyToken, legacyPickleKey = "") {
       } catch (err) {
         clearTimeout(th);
         lastErr = err;
-        if (attempt < MAX_RETRIES) { await sleep(backoffMs(attempt)); continue; }
+        // Only auto-retry network errors for idempotent methods (see clickupFetch).
+        const isIdempotent = method === "GET" || method === "HEAD";
+        if (isIdempotent && attempt < MAX_RETRIES) { await sleep(backoffMs(attempt)); continue; }
         throw new McpError(ErrorCode.InternalError,
-          `Microsoft Graph request failed after ${MAX_RETRIES + 1} attempts: ${err?.message ?? err}`);
+          `Microsoft Graph request failed: ${err?.message ?? err}`);
       }
       clearTimeout(th);
 
@@ -552,20 +578,20 @@ function createPickleServer(ctxOrLegacyToken, legacyPickleKey = "") {
           "## Connect ClickUp (≈ 30 seconds)",
           "1. Open https://app.clickup.com → click your avatar → **Settings** → **Apps**",
           "2. Under **ClickUp API**, click **Generate** — copy the `pk_…` token",
-          "3. In your assistant's MCP config (`~/.claude.json`, Cursor MCP settings, etc.), set the header:",
-          "   `\"x-clickup-token\": \"pk_YOUR_TOKEN\"`",
-          "4. Restart your assistant — Pickle's 40 ClickUp tools appear automatically",
+          "3. In your assistant's MCP config (`~/.claude.json` for Claude Code, or your host's MCP settings), add the token to Pickle's **`env`** block:",
+          "   `\"env\": { \"CLICKUP_API_KEY\": \"pk_YOUR_TOKEN\" }`",
+          "4. Restart your assistant — Pickle's ClickUp tools appear automatically",
           "",
-          "✓ Token is used per-request, never stored on the Pickle server.",
+          "✓ Your token stays in your local MCP config — there is no Pickle server, no middleman.",
         ].join("\n");
 
         const slackGuide = [
           "## Connect Slack (≈ 2 minutes)",
           "1. Open https://api.slack.com/apps → **Create New App** → **From scratch**",
           "2. Name it 'Pickle' (or whatever) → pick your workspace",
-          "3. **OAuth & Permissions** → User Token Scopes → add: `channels:history`, `groups:history`, `im:history`, `mpim:history`, `users:read`, `chat:write`",
+          "3. **OAuth & Permissions** → User Token Scopes → add: `channels:history`, `groups:history`, `im:history`, `mpim:history`, `users:read`, `search:read`",
           "4. **Install to Workspace** → copy the **User OAuth Token** (`xoxp-…`)",
-          "5. Add header to your MCP config: `\"x-slack-token\": \"xoxp-YOUR_TOKEN\"`",
+          "5. Add it to Pickle's **`env`** block in your MCP config: `\"SLACK_TOKEN\": \"xoxp-YOUR_TOKEN\"`",
           "6. Restart your assistant",
           "",
           "Slack audit patterns (ghost mode, DM-only completion, decisions-in-DM) need a Slack token connected — they read chat data. Everything is free and local.",
@@ -576,7 +602,7 @@ function createPickleServer(ctxOrLegacyToken, legacyPickleKey = "") {
           "Quick test (1-hour token, no Azure app):",
           "1. Open https://developer.microsoft.com/graph/graph-explorer → sign in with your Teams account",
           "2. DevTools → Network → copy the `Authorization: Bearer …` value",
-          "3. Add header: `\"x-teams-token\": \"Bearer YOUR_TOKEN\"`",
+          "3. Add it to Pickle's **`env`** block: `\"TEAMS_TOKEN\": \"YOUR_TOKEN\"` (paste the value after `Bearer `)",
           "",
           "Persistent setup (one-time):",
           "1. https://portal.azure.com → **App registrations** → **New registration** → 'Pickle CLI', Personal Microsoft accounts",
@@ -868,7 +894,6 @@ function createPickleServer(ctxOrLegacyToken, legacyPickleKey = "") {
       async handler({ list_id, ...rawArgs }) {
         const capped = applyWindowCap(rawArgs, "updated");
         const args = capped.args;
-        trackAudit(pickleKey, "clickup_get_list_tasks", capped.window_used);
         const query = {};
         if (args.archived !== undefined) query.archived = args.archived;
         if (args.include_markdown_description) query.include_markdown_description = true;
@@ -997,70 +1022,70 @@ function createPickleServer(ctxOrLegacyToken, legacyPickleKey = "") {
 
     {
       name: "clickup_update_chat_message",
-      description: "Edit the content of an existing chat message.",
+      description: "Edit the content of an existing chat message. Single-message ops are workspace-scoped (no channel segment).",
       inputSchema: z.object({
-        channel_id: z.string().min(1),
         message_id: z.string().min(1),
         content: z.string().min(1),
+        channel_id: z.string().optional().describe("Ignored — kept for backward compatibility; single-message edits are workspace-scoped."),
         team_id: z.string().optional(),
       }),
-      async handler({ channel_id, message_id, content, team_id }) {
+      async handler({ message_id, content, team_id }) {
         const teamId = await resolveTeamId(team_id);
-        return clickupFetch("PUT",
-          `/api/v3/workspaces/${teamId}/chat/channels/${encodeURIComponent(channel_id)}/messages/${encodeURIComponent(message_id)}`,
+        return clickupFetch("PATCH",
+          `/api/v3/workspaces/${teamId}/chat/messages/${encodeURIComponent(message_id)}`,
           { body: { content } });
       },
     },
 
     {
       name: "clickup_delete_chat_message",
-      description: "Delete a chat message.",
+      description: "Delete a chat message. Single-message ops are workspace-scoped (no channel segment).",
       inputSchema: z.object({
-        channel_id: z.string().min(1),
         message_id: z.string().min(1),
+        channel_id: z.string().optional().describe("Ignored — kept for backward compatibility; single-message deletes are workspace-scoped."),
         team_id: z.string().optional(),
       }),
-      async handler({ channel_id, message_id, team_id }) {
+      async handler({ message_id, team_id }) {
         const teamId = await resolveTeamId(team_id);
         return clickupFetch("DELETE",
-          `/api/v3/workspaces/${teamId}/chat/channels/${encodeURIComponent(channel_id)}/messages/${encodeURIComponent(message_id)}`);
+          `/api/v3/workspaces/${teamId}/chat/messages/${encodeURIComponent(message_id)}`);
       },
     },
 
     {
       name: "clickup_get_chat_message_replies",
-      description: "Get threaded replies for a specific chat message (v3).",
+      description: "Get threaded replies for a specific chat message (v3). Single-message ops are workspace-scoped (no channel segment).",
       inputSchema: z.object({
-        channel_id: z.string().min(1),
         message_id: z.string().min(1),
+        channel_id: z.string().optional().describe("Ignored — kept for backward compatibility; replies are fetched workspace-scoped by message_id."),
         team_id: z.string().optional(),
-        limit: z.number().int().positive().max(200).optional(),
+        limit: z.number().int().positive().max(100).optional(),
         cursor: z.string().optional(),
       }),
-      async handler({ channel_id, message_id, team_id, limit, cursor }) {
+      async handler({ message_id, team_id, limit, cursor }) {
         const teamId = await resolveTeamId(team_id);
         const query = {};
         if (limit !== undefined) query.limit = limit;
         if (cursor) query.cursor = cursor;
         return clickupFetch("GET",
-          `/api/v3/workspaces/${teamId}/chat/channels/${encodeURIComponent(channel_id)}/messages/${encodeURIComponent(message_id)}/replies`,
+          `/api/v3/workspaces/${teamId}/chat/messages/${encodeURIComponent(message_id)}/replies`,
           { query });
       },
     },
 
     {
       name: "clickup_send_chat_reply",
-      description: "Send a reply in a chat message thread (v3).",
+      description: "Send a reply in a chat message thread (v3). Single-message ops are workspace-scoped (no channel segment).",
       inputSchema: z.object({
-        channel_id: z.string().min(1),
         message_id: z.string().min(1),
         content: z.string().min(1),
+        channel_id: z.string().optional().describe("Ignored — kept for backward compatibility; replies post workspace-scoped by message_id."),
         team_id: z.string().optional(),
       }),
-      async handler({ channel_id, message_id, content, team_id }) {
+      async handler({ message_id, content, team_id }) {
         const teamId = await resolveTeamId(team_id);
         return clickupFetch("POST",
-          `/api/v3/workspaces/${teamId}/chat/channels/${encodeURIComponent(channel_id)}/messages/${encodeURIComponent(message_id)}/replies`,
+          `/api/v3/workspaces/${teamId}/chat/messages/${encodeURIComponent(message_id)}/replies`,
           { body: { content } });
       },
     },
@@ -1115,7 +1140,6 @@ function createPickleServer(ctxOrLegacyToken, legacyPickleKey = "") {
       async handler(rawArgs) {
         const capped = applyWindowCap(rawArgs, "updated");
         const args = capped.args;
-        trackAudit(pickleKey, "clickup_filter_tasks", capped.window_used);
         const teamId = await resolveTeamId(args.team_id);
         const query = {};
         if (args.assignees) query["assignees[]"] = args.assignees;
@@ -1626,27 +1650,50 @@ function createPickleServer(ctxOrLegacyToken, legacyPickleKey = "") {
       async handler(rawArgs) {
         const tw = parseTimeWindow(rawArgs.time_window);
         const oldest = (Date.now() - tw.ms) / 1000; // Slack uses Unix seconds
-        trackAudit(pickleKey, "slack_get_channel_history", tw.original);
-        const query = {
-          channel: rawArgs.channel,
-          oldest: String(oldest),
-          limit: rawArgs.limit || 200,
-          inclusive: rawArgs.inclusive !== false,
-        };
-        if (rawArgs.cursor) query.cursor = rawArgs.cursor;
-        const r = await slackFetch("GET", "/api/conversations.history", { query });
-        const messages = (r.messages || []).map((m) => ({
-          ts: m.ts, user: m.user || m.bot_id || null,
-          text: m.text || "", thread_ts: m.thread_ts || null,
-          reply_count: m.reply_count ?? 0,
-          reactions: (m.reactions || []).map((r) => ({ name: r.name, count: r.count })),
-          subtype: m.subtype || null,
-        }));
+        const perPage = rawArgs.limit || 200;
+        const MAX_PAGES = 30; // safety cap — one channel audit can't loop forever
+        // Slack returns a small page regardless of `limit`, so a single call is
+        // not the channel. Follow response_metadata.next_cursor until has_more
+        // is false (or the window floor is reached, enforced by `oldest`).
+        const messages = [];
+        let cursor = rawArgs.cursor || "";
+        let pages = 0;
+        let hasMore = false;
+        let lastMeta = null;
+        do {
+          const query = {
+            channel: rawArgs.channel,
+            oldest: String(oldest),
+            limit: perPage,
+            inclusive: rawArgs.inclusive !== false,
+          };
+          if (cursor) query.cursor = cursor;
+          const r = await slackFetch("GET", "/api/conversations.history", { query });
+          for (const m of (r.messages || [])) {
+            messages.push({
+              ts: m.ts, user: m.user || m.bot_id || null,
+              text: m.text || "", thread_ts: m.thread_ts || null,
+              reply_count: m.reply_count ?? 0,
+              reactions: (m.reactions || []).map((rx) => ({ name: rx.name, count: rx.count })),
+              subtype: m.subtype || null,
+            });
+          }
+          lastMeta = r.response_metadata || null;
+          hasMore = !!r.has_more;
+          cursor = r.response_metadata?.next_cursor || "";
+          pages++;
+        } while (hasMore && cursor && pages < MAX_PAGES);
+        const capped = hasMore && !!cursor; // stopped at the page cap with more to fetch
         return {
           messages,
-          has_more: !!r.has_more,
-          response_metadata: r.response_metadata || null,
-          _audit: { window_used: tw.original, note: null },
+          has_more: capped,
+          next_cursor: capped ? cursor : null,
+          pages_fetched: pages,
+          response_metadata: lastMeta,
+          _audit: {
+            window_used: tw.original,
+            note: capped ? `Stopped after ${MAX_PAGES} pages; more messages remain in window — pass next_cursor to continue.` : null,
+          },
         };
       },
     },
@@ -1710,24 +1757,46 @@ function createPickleServer(ctxOrLegacyToken, legacyPickleKey = "") {
       }),
       async handler(rawArgs) {
         const tw = parseTimeWindow(rawArgs.time_window);
-        trackAudit(pickleKey, "slack_search_messages", tw.original);
         let q = rawArgs.query;
         if (!/after:|before:/i.test(q)) {
           const after = new Date(Date.now() - tw.ms).toISOString().slice(0, 10);
           q = `${q} after:${after}`;
         }
-        const r = await slackFetch("GET", "/api/search.messages", {
-          query: { query: q, count: rawArgs.count || 50, sort: rawArgs.sort || "timestamp" },
-        });
-        const matches = (r.messages?.matches || []).map((m) => ({
-          ts: m.ts, channel_id: m.channel?.id || null, channel_name: m.channel?.name || null,
-          user: m.user || m.username || null, text: m.text || "",
-          permalink: m.permalink || null, score: m.score ?? null,
-        }));
+        const count = rawArgs.count || 50;
+        const sort = rawArgs.sort || "timestamp";
+        const MAX_PAGES = 20; // safety cap so a huge audit can't loop forever
+        // search.messages returns one page of `count`; walk messages.paging.pages
+        // so large result sets aren't silently truncated at the first page.
+        const matches = [];
+        let page = 1;
+        let totalPages = 1;
+        let total = 0;
+        do {
+          const r = await slackFetch("GET", "/api/search.messages", {
+            query: { query: q, count, sort, page },
+          });
+          for (const m of (r.messages?.matches || [])) {
+            matches.push({
+              ts: m.ts, channel_id: m.channel?.id || null, channel_name: m.channel?.name || null,
+              user: m.user || m.username || null, text: m.text || "",
+              permalink: m.permalink || null, score: m.score ?? null,
+            });
+          }
+          const paging = r.messages?.paging || {};
+          total = r.messages?.total ?? total;
+          totalPages = paging.pages || 1;
+          page++;
+        } while (page <= totalPages && page <= MAX_PAGES);
+        const truncated = totalPages > MAX_PAGES;
         return {
-          matches, total: r.messages?.total ?? matches.length,
+          matches, total,
+          pages_fetched: page - 1,
+          truncated,
           query_used: q,
-          _audit: { window_used: tw.original, note: null },
+          _audit: {
+            window_used: tw.original,
+            note: truncated ? `Result set spans ${totalPages} pages; fetched the first ${MAX_PAGES}.` : null,
+          },
         };
       },
     },
@@ -1773,19 +1842,29 @@ function createPickleServer(ctxOrLegacyToken, legacyPickleKey = "") {
 
     {
       name: "teams_get_channel_messages",
-      description: "Get messages in a Teams channel scoped to the audit time window (default 7d; pass any window). Returns id, from, body, createdDateTime, replies count.",
+      description: "Get messages in a Teams channel scoped to the audit time window (default 7d; pass any window). Returns id, from, body, createdDateTime, and expanded replies. Paginate with next_cursor.",
       inputSchema: z.object({
         team_id: z.string().min(1),
         channel_id: z.string().min(1),
         time_window: z.string().optional().describe("'1h', '6h', '1d', '3d', or '7d' (default). Runs locally, so there is no cap - pass any window."),
         top: z.number().int().min(1).max(50).optional().default(50),
+        cursor: z.string().optional().describe("Continuation token (the @odata.nextLink from a previous call) to fetch the next page."),
       }),
       async handler(rawArgs) {
         const tw = parseTimeWindow(rawArgs.time_window);
         const sinceIso = new Date(Date.now() - tw.ms).toISOString();
-        trackAudit(pickleKey, "teams_get_channel_messages", tw.original);
-        const path = `/v1.0/teams/${encodeURIComponent(rawArgs.team_id)}/channels/${encodeURIComponent(rawArgs.channel_id)}/messages`;
-        const r = await graphFetch("GET", path, { query: { $top: rawArgs.top || 50 } });
+        // Graph returns one page (max $top=50). Expose the @odata.nextLink as
+        // next_cursor so callers can walk every page — the server allow-lists
+        // graph.microsoft.com, so passing the nextLink back through is SSRF-safe.
+        // $expand=replies makes reply_count and reply bodies real (where dropped
+        // decisions hide); if replies are absent we report reply_count: null.
+        let r;
+        if (rawArgs.cursor) {
+          r = await graphFetch("GET", rawArgs.cursor);
+        } else {
+          const path = `/v1.0/teams/${encodeURIComponent(rawArgs.team_id)}/channels/${encodeURIComponent(rawArgs.channel_id)}/messages`;
+          r = await graphFetch("GET", path, { query: { $top: rawArgs.top || 50, $expand: "replies" } });
+        }
         const messages = (r.value || [])
           .filter((m) => !m.createdDateTime || m.createdDateTime >= sinceIso)
           .map((m) => ({
@@ -1793,11 +1872,18 @@ function createPickleServer(ctxOrLegacyToken, legacyPickleKey = "") {
             from: m.from?.user?.displayName || m.from?.application?.displayName || null,
             body_content: m.body?.content || "",
             body_type: m.body?.contentType || null,
-            reply_count: m.replies?.length ?? null,
+            reply_count: Array.isArray(m.replies) ? m.replies.length : null,
+            replies: Array.isArray(m.replies) ? m.replies.map((rp) => ({
+              id: rp.id, createdDateTime: rp.createdDateTime,
+              from: rp.from?.user?.displayName || rp.from?.application?.displayName || null,
+              body_content: rp.body?.content || "",
+              body_type: rp.body?.contentType || null,
+            })) : null,
           }));
         return {
           messages,
           since: sinceIso,
+          next_cursor: r["@odata.nextLink"] || null,
           _audit: { window_used: tw.original, note: null },
         };
       },
@@ -1822,19 +1908,26 @@ function createPickleServer(ctxOrLegacyToken, legacyPickleKey = "") {
 
     {
       name: "teams_get_chat_messages",
-      description: "Get messages in a Teams chat (DM or group) scoped to the audit window. Returns id, from, body, createdDateTime.",
+      description: "Get messages in a Teams chat (DM or group) scoped to the audit window. Returns id, from, body, createdDateTime. Paginate with next_cursor.",
       inputSchema: z.object({
         chat_id: z.string().min(1),
         time_window: z.string().optional(),
         top: z.number().int().min(1).max(50).optional().default(50),
+        cursor: z.string().optional().describe("Continuation token (the @odata.nextLink from a previous call) to fetch the next page."),
       }),
       async handler(rawArgs) {
         const tw = parseTimeWindow(rawArgs.time_window);
         const sinceIso = new Date(Date.now() - tw.ms).toISOString();
-        trackAudit(pickleKey, "teams_get_chat_messages", tw.original);
-        const r = await graphFetch("GET", `/v1.0/me/chats/${encodeURIComponent(rawArgs.chat_id)}/messages`, {
-          query: { $top: rawArgs.top || 50 },
-        });
+        // Same pagination model as teams_get_channel_messages: expose the Graph
+        // @odata.nextLink as next_cursor so no messages are silently dropped.
+        let r;
+        if (rawArgs.cursor) {
+          r = await graphFetch("GET", rawArgs.cursor);
+        } else {
+          r = await graphFetch("GET", `/v1.0/me/chats/${encodeURIComponent(rawArgs.chat_id)}/messages`, {
+            query: { $top: rawArgs.top || 50 },
+          });
+        }
         const messages = (r.value || [])
           .filter((m) => !m.createdDateTime || m.createdDateTime >= sinceIso)
           .map((m) => ({
@@ -1846,6 +1939,7 @@ function createPickleServer(ctxOrLegacyToken, legacyPickleKey = "") {
         return {
           messages,
           since: sinceIso,
+          next_cursor: r["@odata.nextLink"] || null,
           _audit: { window_used: tw.original, note: null },
         };
       },
@@ -1899,6 +1993,13 @@ function createPickleServer(ctxOrLegacyToken, legacyPickleKey = "") {
     const { name, arguments: rawArgs } = request.params;
     const tool = toolByName.get(name);
     if (!tool) throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
+
+    if (isReadOnlyMode() && MUTATING_TOOLS.has(name)) {
+      throw new McpError(
+        ErrorCode.InvalidRequest,
+        `Pickle is running in read-only mode (PICKLE_READONLY is set), so the mutating tool "${name}" is blocked. Unset PICKLE_READONLY to allow writes.`
+      );
+    }
 
     let args;
     try {
@@ -1994,9 +2095,6 @@ app.post("/mcp", async (req, res) => {
   const auth = mcpAuth(req, res);
   if (!auth.ok) return;
 
-  trackInstallFingerprint(auth.ctx.pickleKey, req);
-  trackPlatformsSeen(auth.ctx.pickleKey, auth.ctx);
-
   try {
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     const { server } = createPickleServer(auth.ctx);
@@ -2013,9 +2111,6 @@ app.post("/mcp", async (req, res) => {
 app.get("/mcp", async (req, res) => {
   const auth = mcpAuth(req, res);
   if (!auth.ok) return;
-
-  trackInstallFingerprint(auth.ctx.pickleKey, req);
-  trackPlatformsSeen(auth.ctx.pickleKey, auth.ctx);
 
   try {
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });

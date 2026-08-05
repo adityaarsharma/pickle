@@ -120,7 +120,7 @@ Those are cloud add-ons that each see only their own tool and send your data to 
 The token stays in your local config file (`chmod 600`), and the code is open. Read it before you connect. Nothing is transmitted anywhere except the platform's own API.
 
 **Will Pickle change or delete anything in my tools?**
-By default it only reads and reports, it does not touch your data. It can create a reminder or drop a comment if you explicitly ask it to (for example "remind me about XYZ-184"), but the audit itself is read-only. You stay in control.
+The audit itself is read-only — it only reads and reports. Pickle *can* create a reminder, drop a comment, or make a task if you explicitly ask it to (for example "remind me about XYZ-184"), because the server also exposes write tools for that. If you want a hard, code-level guarantee that nothing can be written or deleted no matter what a model asks, set `PICKLE_READONLY=1` in the `env` block — it blocks every mutating tool at the server. Details in [`docs/security.md`](docs/security.md). You stay in control.
 
 **Do I need Slack and Teams too, or is ClickUp enough?**
 ClickUp alone is a great start. Slack/Teams unlock the cross-tool patterns (decisions-in-DMs, ghost mode) because those need chat data.

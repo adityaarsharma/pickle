@@ -34,8 +34,8 @@ Add this to your client's MCP config, pointing at the absolute path of `server.m
       "args": ["/absolute/path/to/pickle/server-remote/server.mjs"],
       "env": {
         "CLICKUP_API_KEY": "pk_your_own_token",
-        "SLACK_TOKEN": "xoxp_optional",
-        "TEAMS_TOKEN": "optional"
+        "SLACK_TOKEN": "xoxp-… (optional — omit if you don't use Slack)",
+        "TEAMS_TOKEN": "… Graph access token (optional — omit if you don't use Teams)"
       }
     }
   }
@@ -44,7 +44,8 @@ Add this to your client's MCP config, pointing at the absolute path of `server.m
 
 Config file locations:
 
-- **Claude Code / Claude Desktop** — `~/.claude.json` (or `claude_desktop_config.json`)
+- **Claude Code (CLI)** — `~/.claude.json`
+- **Claude Desktop** — `claude_desktop_config.json` (in the app's per-OS Application Support dir — *not* `~/.claude.json`)
 - **Cursor** — `.cursor/mcp.json`
 - **Codex / Cline / Continue / Zed** — that client's MCP settings
 
@@ -56,6 +57,6 @@ Your token stays in that config file, on your disk. Pickle sends it to no one �
 
 ## Notes
 
-- Node 18+ required.
+- Node 20+ required.
 - The server binds `127.0.0.1` only — nothing is exposed to your network.
 - No account, no telemetry, no phone-home. Read [`server-remote/server.mjs`](../server-remote/server.mjs) to confirm.
