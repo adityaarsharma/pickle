@@ -31,7 +31,7 @@ Pickle issues nothing. The user supplies their own `CLICKUP_API_KEY` (`pk_…`),
 
 ## 5. No hardcoded personal / company / infra identifiers
 
-Banned in committed files: real names in detection patterns, `POSIMYTH`, `RunCloud`, server IPs, internal channel names, private hostnames. Use generic examples (`marketing-hq`, `acme-corp`). "Built by Aditya Sharma" credit lines are fine and wanted.
+Banned in committed files: real names in detection patterns, any real company/product/employer names, server IPs, internal channel names, private hostnames. Use generic examples (`marketing-hq`, `acme-corp`). "Built by Aditya Sharma" credit lines are fine and wanted.
 
 ## 6. Skill name = directory name = slash command
 
