@@ -1,6 +1,6 @@
 {
   "name": "pickle-mcp",
-  "version": "1.2.0",
+  "version": "1.2.2",
   "license": "MIT",
   "description": "Free, local, open-source MCP server that audits your ClickUp, Slack & Microsoft Teams for work that slipped through — stale tasks, expired promises, decisions lost in a DM. Runs on your own machine with your own token; no account, no telemetry.",
   "type": "module",

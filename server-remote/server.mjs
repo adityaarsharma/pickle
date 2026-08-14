@@ -45,7 +45,7 @@ const REQUEST_TIMEOUT_MS = 30_000;
 const MAX_RETRIES  = 5;
 const USER_AGENT   = "pickle-mcp-remote/3.0 (+https://pickle.adityaarsharma.com)";
 const CACHE_TTL_MS = 3_600_000; // 1 hour — workspace/team data per user token
-const VERSION      = "1.2.0";
+const VERSION      = "1.2.2";
 
 // ---------------------------------------------------------------------------
 // SSRF protection — whitelist of allowed outbound hosts
@@ -1694,6 +1694,51 @@ function createPickleServer(ctxOrLegacyToken, legacyPickleKey = "") {
             window_used: tw.original,
             note: capped ? `Stopped after ${MAX_PAGES} pages; more messages remain in window — pass next_cursor to continue.` : null,
           },
+        };
+      },
+    },
+
+    {
+      name: "slack_get_thread_replies",
+      description: "Get the full replies of a Slack thread — the parent message plus every reply. REQUIRED to check whether a flagged loop was actually resolved in-thread, because slack_get_channel_history only returns thread parents, not their replies. Pass the channel/DM id and the parent message `ts` (thread_ts).",
+      inputSchema: z.object({
+        channel: z.string().min(1).describe("Channel or DM ID the thread lives in (e.g. 'C0123ABCDEF' or 'D0123ABCDEF')."),
+        thread_ts: z.string().min(1).describe("The parent message's `ts` (its thread_ts), e.g. '1785930785.873269'."),
+        limit: z.number().int().min(1).max(1000).optional().default(200),
+        cursor: z.string().optional(),
+      }),
+      async handler(rawArgs) {
+        const perPage = rawArgs.limit || 200;
+        const MAX_PAGES = 20; // safety cap — a single thread can't loop forever
+        const messages = [];
+        let cursor = rawArgs.cursor || "";
+        let pages = 0;
+        let hasMore = false;
+        // Slack paginates replies too; follow next_cursor until has_more is false.
+        do {
+          const query = { channel: rawArgs.channel, ts: rawArgs.thread_ts, limit: perPage };
+          if (cursor) query.cursor = cursor;
+          const r = await slackFetch("GET", "/api/conversations.replies", { query });
+          for (const m of (r.messages || [])) {
+            messages.push({
+              ts: m.ts, user: m.user || m.bot_id || null,
+              text: m.text || "", thread_ts: m.thread_ts || null,
+              is_parent: m.ts === rawArgs.thread_ts,
+              reactions: (m.reactions || []).map((rx) => ({ name: rx.name, count: rx.count })),
+              subtype: m.subtype || null,
+            });
+          }
+          hasMore = !!r.has_more;
+          cursor = r.response_metadata?.next_cursor || "";
+          pages++;
+        } while (hasMore && cursor && pages < MAX_PAGES);
+        const capped = hasMore && !!cursor;
+        return {
+          messages,
+          reply_count: Math.max(0, messages.length - 1),
+          has_more: capped,
+          next_cursor: capped ? cursor : null,
+          pages_fetched: pages,
         };
       },
     },
