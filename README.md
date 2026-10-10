@@ -10,6 +10,7 @@
 [![No account · no telemetry](https://img.shields.io/badge/no%20account-no%20telemetry-22c55e?style=flat-square)](#privacy)
 [![Works with](https://img.shields.io/badge/works%20with-Claude·Cursor·Codex·Cline·Zed-f97316?style=flat-square)](#works-with)
 [![Star this repo](https://img.shields.io/github/stars/adityaarsharma/pickle?style=flat-square&color=eab308)](https://github.com/adityaarsharma/pickle/stargazers)
+[![Leave a tip](https://img.shields.io/badge/Leave%20a%20tip-Ko--fi-FF5E5B?style=flat-square&logo=ko-fi&logoColor=white)](https://ko-fi.com/adityaarsharma)
 
 Pickle is a free, open-source **AI ops manager** for your team, packaged as an MCP server you run yourself. Give it **your own** ClickUp / Slack / Teams token, and your AI client (Claude, Cursor, Codex, Cline, Zed…) audits your workspace the way a sharp ops manager would: catching the work that quietly fell through.
 
